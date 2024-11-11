@@ -1,6 +1,6 @@
 # Welcome to the Multi-Agent Grid World Dynamic Environment!
 
-This environment is a significant part of my Ph.D. research project. It is specifically designed to support both single-agent and multi-agent reinforcement learning applications, with a focus on dynamic, communication-enabled scenarios. Below are some of its key features:
+This environment is a significant part of my Ph.D. research project. It is specifically designed to support both single-agent and multi-agent reinforcement learning applications, with a focus on discrete observation and action space, dynamic, and communication-enabled scenarios. Below are some of its key features:
 
 ## Key Features
 
