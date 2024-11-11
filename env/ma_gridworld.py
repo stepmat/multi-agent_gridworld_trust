@@ -1,3 +1,8 @@
+"""
+Multi-Agent Dynamic Grid World Environment
+Created by: Ardianto Wibowo
+"""
+
 import time
 import numpy as np
 import tkinter as tk
