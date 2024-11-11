@@ -43,4 +43,7 @@ The environment provides agents with structured observations, consisting of the 
 
 ## Development Background
 
-This environment is inspired by and adapted from two existing environments, integrating their features and expanding them to support more advanced multi-agent capabilities and dynamic conditions.
+This environment is inspired by and adapted from two existing environments:
+1. Single-agent grid world environment:https://github.com/rlcode/reinforcement-learning/tree/master/1-grid-world
+2. Vectorized Multi-Agent Simulator (VMAS): https://github.com/proroklab/VectorizedMultiAgentSimulator
+
