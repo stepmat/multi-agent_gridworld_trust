@@ -6,7 +6,7 @@ This environment is a significant part of my Ph.D. research project. It is speci
 
 1. **Flexible Agent Support:**
    - Supports both single-agent and multi-agent setups.
-   - Enables communication between agents, allowing for coordinated reinforcement learning.
+   - Enables communication between agents, allowing for coordinated multi-agent reinforcement learning.
 
 2. **Enhanced Sensory Information:**
    - Provides agents with a surrounding grid of sensory data, beyond just coordinate information.
