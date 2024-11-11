@@ -333,7 +333,7 @@ class Env(tk.Tk):
                 # Check if agent hits another agent's target
                 elif any(next_state_grid in [self.coords_to_state(self.canvas.coords(target)) for target in self.target_objs[other_idx]]
                         for other_idx in range(self.num_agents) if other_idx != idx):
-                    rewards.append(-50)
+                    rewards.append(self.reward_obstacle)
                     self.locked[idx] = True
                     dones.append(True)
                     all_reached = False 
