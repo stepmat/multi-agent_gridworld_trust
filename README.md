@@ -16,7 +16,7 @@ This environment is a significant part of my Ph.D. research project. It is speci
    - Includes moving targets and obstacles to simulate a dynamic environment.
    - Supports both shared and unique targets for agents:
      - **Single Target Mode**: All agents aim for a common target.
-     - **Multiple Targets Mode**: Each agent has its own target or multiple unique targets.
+     - **Multiple Targets Mode**: Each agent has its own unique target or multiple targets.
 
 ## Observation Data Structure
 
