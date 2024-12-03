@@ -1,12 +1,10 @@
-# Welcome to the Multi-Agent Grid World Dynamic Environment!
-
-This environment is a significant part of my Ph.D. research project. It is specifically designed to support both single-agent and multi-agent reinforcement learning applications, with a focus on discrete observation and action space, dynamic, and communication-enabled scenarios. Below are some of its key features:
+# Welcome to the Multi-Agent Grid World Collaborative Trust Environment!
 
 ## Key Features
 
 1. **Flexible Agent Support:**
    - Supports both single-agent and multi-agent setups.
-   - Enables communication between agents, allowing for coordinated multi-agent reinforcement learning.
+   - Enables communication between agents, allowing for coordinated multi-agent systems.
 
 2. **Enhanced Sensory Information:**
    - Provides agents with a surrounding grid of sensory data, beyond just coordinate information.
