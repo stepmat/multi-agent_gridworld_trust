@@ -1,6 +1,6 @@
 """
 Multi-Agent Dynamic Grid World Environment
-Created by: Ardianto Wibowo
+Created by: Ardianto Wibowo & Matthew Stephenson
 """
 
 import time
