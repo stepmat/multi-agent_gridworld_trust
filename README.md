@@ -1,4 +1,4 @@
-# Welcome to the Multi-Agent Grid World Collaborative Trust Environment!
+# Welcome to the Multi-Agent Grid World Trust Environment!
 
 ## Key Features
 
