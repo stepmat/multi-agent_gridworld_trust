@@ -324,24 +324,28 @@ class Env(tk.Tk):
                 # Check if the agent reaches any of its own targets (for multiple targets setup)
                 own_targets_grid = [self.coords_to_state(self.canvas.coords(target)) for target in self.target_objs[idx]]
                 if next_state_grid in own_targets_grid:
+                    
+                    # remove target from board
+                    target_index = own_targets_grid.index(next_state_grid)
+                    self.agent_targets[idx].pop(target_index)
+                    delete_obj = self.target_objs[idx].pop(target_index)
+                    self.canvas.delete(delete_obj)
+                    
                     rewards.append(self.reward_target)
-                    self.win[idx] = True
-                    self.locked[idx] = True
-                    dones.append(True)
+                    dones.append(False)
+                    all_reached = False   
                     print(f"Agent {idx} reached one of its own targets! Next state: {next_state_grid}")
-
-                # Check if agent hits another agent's target
-                elif any(next_state_grid in [self.coords_to_state(self.canvas.coords(target)) for target in self.target_objs[other_idx]]
-                        for other_idx in range(self.num_agents) if other_idx != idx):
-                    rewards.append(self.reward_obstacle)
-                    self.locked[idx] = True
-                    dones.append(True)
-                    all_reached = False 
-                    print(f"Agent {idx} hit another agent's target! Next state: {next_state_grid}")
                 else:
                     rewards.append(self.reward_normal)
                     dones.append(False)
                     all_reached = False 
+                    
+                # check if there are any targets left on the board
+                if not any(self.agent_targets):
+                    rewards.append(self.reward_target)
+                    self.win[idx] = True
+                    self.locked[idx] = True
+                    dones.append(True)
 
             # Check if the agent hits an obstacle
             if next_state_grid in [self.coords_to_state(self.canvas.coords(obstacle)) for obstacle in self.obstacles]:
