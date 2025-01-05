@@ -1,4 +1,4 @@
-"""
+""" Ver10
 Multi-Agent Dynamic Grid World Environment
 Created by: Ardianto Wibowo
 """
@@ -13,10 +13,45 @@ sys.path.append('env')
 from env.ma_gridworld import Env
 
 class SearchAgent:
-    def __init__(self, num_actions):
+
+    def __init__(self, agent_id, noise_level, init_trust_level, min_trust_level, num_actions):
+
         self.num_actions = num_actions
         self.targets_seen = []
-        self.noise_level = 0.5
+        self.noise_level = noise_level
+        self.agent_id = agent_id
+        self.init_trust_level = init_trust_level  # round(random.uniform(0.3, 1.0), 2)
+        self.min_trust_level = min_trust_level
+
+        self.memory = []  # to store verified data
+
+        self.true_interaction = {}
+        self.false_interaction = {}
+
+        # self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+        if isinstance(self.init_trust_level, dict):
+            self.trust_values = self.init_trust_level
+        else:
+            self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+
+        print(f"Agent {self.agent_id}: Noise level {self.noise_level:.2f}, Initialized agents with trust level {self.trust_values}")
+
+
+    def reset(self):
+        self.memory = []
+
+        self.true_interaction = {}
+        self.false_interaction = {}
+
+        self.targets_seen = []
+
+        # self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+        if isinstance(self.init_trust_level, dict):
+            self.trust_values = self.init_trust_level
+        else:
+            self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+
+
 
     def analyse_sensor_data(self, agent_id, coordinate_observation, sensor_data_observation):
         for i in range(len(sensor_data_observation)):
@@ -24,62 +59,160 @@ class SearchAgent:
                 data = sensor_data_observation[i][j]
                 location = [coordinate_observation[0] + j - len(sensor_data_observation[i])//2,
                            coordinate_observation[1] + i - len(sensor_data_observation)//2]
-                if data != None and 'target_' + str(agent_id) in data:
-                    if location not in self.targets_seen:
-                        self.targets_seen.append(location)
-                # Remove collected targets from targets_seen
-                if location[0] == coordinate_observation[0] and location[1] == coordinate_observation[1]:
-                    if location in self.targets_seen:
-                        self.targets_seen.remove(location)
 
-    def analyse_communication(self, agent_id, comm_observation):
+
+                if data != None and 'target_' + str(agent_id) in data:
+                    if location not in [target["location"] for target in self.targets_seen]:
+                        self.targets_seen.append({
+                            "location": location,
+                            "verified": False,
+                            "source": "self"
+                        })
+                        print(f"Agent {agent_id}: Added target at {location} to targets_seen")
+
+                #    update the meemory agent_id
+                if data is not None and 'target_' + str(agent_id) in data:  # Check for target
+                    self.update_memory(location, data, agent_id)  #  update_memory
+
+
+
+    def analyse_communication(self, agent_id, comm_observation, apply_trust_threshold=False):
+
         for comm in comm_observation:
             origin_location = comm[0]
             sensor_data_observation = comm[1]
-            for i in range(len(sensor_data_observation)):
-                for j in range(len(sensor_data_observation[i])):
-                    data = sensor_data_observation[i][j]
-                    location = [origin_location[0] + j - len(sensor_data_observation[i])//2,
-                               origin_location[1] + i - len(sensor_data_observation)//2]
-                    if data != None and 'target_' + str(agent_id) in data:
-                        if location not in self.targets_seen:
-                            self.targets_seen.append(location)
-                            print(f"agent {agent_id} track target in location {location}")
+            reported_by = comm[2]
 
-    def select_action(self, coordinate_observation):
+            if apply_trust_threshold and self.trust_values[reported_by] < self.min_trust_level:
+                print(f"Agent {agent_id}: Non trusted communication from Agent {reported_by}")
+            else:
+                for i in range(len(sensor_data_observation)):
+                    for j in range(len(sensor_data_observation[i])):
+                        data = sensor_data_observation[i][j]
+                        location = [origin_location[0] + j - len(sensor_data_observation[i])//2,
+                                   origin_location[1] + i - len(sensor_data_observation)//2]
+                        if data != None and 'target_' + str(agent_id) in data:
+                            if reported_by == 0 and self.agent_id == 3:
+                                print("monitor")
+                            if location not in [target["location"] for target in self.targets_seen]:
+
+                                self.targets_seen.append({
+                                    "location": location,
+                                    "verified": False,
+                                    "source": f"agent_{reported_by}"
+                                })
+                                print(f"Agent {agent_id}: Added target at {location} from Agent {reported_by}")
+                                # 12/17/2024
+
+    def select_action(self, coordinate_observation, agent_id):
+        print(f"Agent {agent_id}: Current targets seen: {self.targets_seen}")
+
+        self.targets_seen = list({tuple(target["location"]): target for target in self.targets_seen}.values())
+
         if len(self.targets_seen) > 0:
-            # find the closest target
             closest_target = None
-            closest_target_distance = 999999
-            for target_coordinate in self.targets_seen:
+            closest_target_distance = float('inf')
+            for target in self.targets_seen:
+                target_coordinate = target["location"]
                 horizontal_distance = target_coordinate[0] - coordinate_observation[0]
                 vertical_distance = target_coordinate[1] - coordinate_observation[1]
                 distance = abs(horizontal_distance) + abs(vertical_distance)
+                print(f"Agent {agent_id}: Target {target_coordinate} at distance {distance}")
+
                 if distance < closest_target_distance:
                     closest_target_distance = distance
                     closest_target = target_coordinate
-            horizontal_distance = closest_target[0] - coordinate_observation[0]
-            vertical_distance = closest_target[1] - coordinate_observation[1]
-            if abs(horizontal_distance) >= abs(vertical_distance):
-                if horizontal_distance < 0:
-                    return 3
-                elif horizontal_distance > 0:
-                    return 4
-                return 0
-            else:
-                if vertical_distance < 0:
-                    return 1
-                elif vertical_distance > 0:
-                    return 2
-                return 0
+
+            if closest_target:
+                # Check the validity of the target
+                grid_width = 15
+                grid_height = 15
+                if not (0 <= closest_target[0] < grid_width and 0 <= closest_target[1] < grid_height):
+                    print(f"Invalid target location {closest_target}, skipping target.")
+                    closest_target = None
+
+                if closest_target and closest_target_distance == 0:
+                    print(f"Agent {agent_id}: Reached target at {closest_target}, removing from targets_seen.")
+                    self.targets_seen = [t for t in self.targets_seen if tuple(t["location"]) != tuple(closest_target)]
+                    return 0
+
+                if closest_target:
+                    print(f"Agent {agent_id}: Moving towards target at {closest_target}")
+                    horizontal_distance = closest_target[0] - coordinate_observation[0]
+                    vertical_distance = closest_target[1] - coordinate_observation[1]
+                    if abs(horizontal_distance) >= abs(vertical_distance):
+                        return 3 if horizontal_distance < 0 else 4
+                    else:
+                        return 1 if vertical_distance < 0 else 2
         else:
-            return np.random.choice(num_actions-1) + 1 # example of random value as a physical action
+            print(f"Agent {agent_id}: No valid targets, attempting random action.")
+            possible_actions = [1, 2, 3, 4]
+            return np.random.choice(possible_actions)
 
 
-# Draft Start
-# Understand tuple and list
-# understand random package
-# you can make max range for random distance greater than the sensors range
+    def update_trust(self, other_agent_id, interaction_success, use_indirect=True, alpha1=.8, alpha2=.8, apply_trust_threshold=True):
+        if not (apply_trust_threshold and self.trust_values[other_agent_id] < self.min_trust_level):
+
+            if other_agent_id not in self.true_interaction:
+                self.true_interaction[other_agent_id] = 0
+                self.false_interaction[other_agent_id] = 0
+
+            if interaction_success:
+                self.true_interaction[other_agent_id] = self.true_interaction[other_agent_id] + 1
+            else:
+                self.false_interaction[other_agent_id] = self.false_interaction[other_agent_id] + 1
+
+            if other_agent_id in self.trust_values:
+                # privouse trust
+                previous_trust = self.trust_values[other_agent_id]
+
+                # the result of interaction
+                interaction_result = 1.0 if interaction_success else 0.0
+
+                witness_report = (self.true_interaction[other_agent_id] + 1) / (
+                        self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id] + 2)
+
+
+                # Only direct trust
+                updated_trust = alpha1 * previous_trust + (1 - alpha1) * (self.true_interaction[other_agent_id] / (self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id]))
+
+
+                previous_trust = updated_trust
+
+
+                if use_indirect:
+                    # Calculate Indirect trust
+                    indirect_trust = 0.0
+                    total_weight = 0.0
+
+                    for intermediary_agent, intermediary_trust in self.trust_values.items():
+                        if intermediary_agent != other_agent_id:
+                            indirect_trust += (
+                                    intermediary_trust * agents[intermediary_agent].trust_values[other_agent_id]
+                            )
+                            total_weight += intermediary_trust
+                    indirect_trust = indirect_trust / total_weight
+
+                    # direct and indirect trust
+                    updated_trust = alpha2 * previous_trust + (1 - alpha2) * indirect_trust
+
+                # Set the trust value to be between 0 and 1
+                self.trust_values[other_agent_id] = max(0.0, min(1.0, updated_trust))
+
+                trust_type = "Direct + Indirect" if use_indirect else "Direct"
+
+                print(
+                    f"Agent {self.agent_id} update trust for {other_agent_id}: :The previous trust value is: {previous_trust} : Updated trust: {updated_trust}  The interaction_result is {interaction_result}")
+
+
+    def update_memory(self, location, data, agent_id):
+        print(f"Agent {agent_id} is updating memory for location {location} with data {data}")
+        if location not in [record["location"] for record in self.memory]:
+            # add
+            self.memory.append({"location": location, "data": data})
+            print(f"Agent {agent_id} Updated Memory: {location} -> {data}")
+
+
 def add_coordinate_noise(coordinate, sensor_data, agent_id, enable=False):
     # if not enable return
     if not enable:
@@ -170,6 +303,7 @@ def add_sensor_data_noise(sensor_data, agent_id, enable=True):
 
     return sensor_data
 
+
 def get_action(agent_id, observation, num_actions, agents, env):
     """
     This method provide a random action chosen recognized by the ma-gridworld environment:
@@ -183,61 +317,87 @@ def get_action(agent_id, observation, num_actions, agents, env):
     sensor_data_observation = observation[2]
     comm_observation = observation[3]
 
+    print(f"Observation for Agent {agent_id}: {observation}")
+
+    # تحقق من وجود بيانات الاتصال
+    if comm_observation:
+        for comm in comm_observation:
+            origin_location = comm[0]
+            data = comm[1]
+            reported_by = comm[2]  # الوكيل الذي أرسل البيانات
+
+            # تحليل البيانات المستلمة من وكيل معين
+            #agents[agent_id].analyse_communication([comm], agent_id)
+
+            for i in range(len(sensor_data_observation)):
+                for j in range(len(sensor_data_observation[i])):
+                    data = sensor_data_observation[i][j]
+                    location = [
+                        coordinate_observation[0] + j - len(sensor_data_observation[i]) // 2,
+                        coordinate_observation[1] + i - len(sensor_data_observation) // 2
+                    ]
+                    for target in agents[agent_id].targets_seen:
+                        if not target["verified"]:
+                            if location == target["location"]:
+                                if data != None and 'target_' + str(agent_id) in data:
+                                    target["verified"] = True
+                                    if 'agent' in target['source']:
+                                        reported_by = int(target['source'].split("_")[1])
+                                        print(f"Reach reported target location in {location} report by {reported_by}")
+                                        # Update trust towards the reported agent
+                                        agents[agent_id].update_trust(reported_by, interaction_success=True)
+                                else:
+                                    if 'agent' in target['source']:
+                                        target["verified"] = True
+                                        reported_by = int(target['source'].split("_")[1])
+
+                                        self_target_seen = False
+                                        for self_target in agents[agent_id].targets_seen:
+                                            if self_target["location"] == location and self_target["source"] == "self":
+                                                self_target_seen = True
+                                        if self_target_seen:
+                                            agents[agent_id].update_trust(reported_by, interaction_success=True)
+                                        else:
+                                            agents[agent_id].update_trust(reported_by, interaction_success=False)
+
+    else:
+        print(f"Agent {agent_id}: No communication data available this step.")
+
     agents[agent_id].analyse_sensor_data(agent_id, coordinate_observation, sensor_data_observation)
     agents[agent_id].analyse_communication(agent_id, comm_observation)
-    physical_action = agents[agent_id].select_action(coordinate_observation)
+    physical_action = agents[agent_id].select_action(coordinate_observation, agent_id)
+
 
     if env.is_agent_silent:
         comm_action = [] # communication action is set to be zero if agent silent
     else:
-        # Draft Start
         coordinate_observation, sensor_data_observation = add_coordinate_noise(coordinate_observation, sensor_data_observation, agent_id)
         sensor_data_observation = add_sensor_data_noise(sensor_data_observation, agent_id)
-        # Draft End
 
-        comm_action = [coordinate_observation, sensor_data_observation] # example of random value as a communication action
+        comm_action = [coordinate_observation, sensor_data_observation, agent_id] # example of random value as a communication action
 
     return (physical_action, comm_action)
 
 
 results = []
+
 def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
     import pandas as pd
     import matplotlib.pyplot as plt
+
+    # تخزين القيم المبدئية لدرجة الثقة لكل وكيل
+    initial_trust_levels = {}
+
+    # تسجيل القيم المبدئية عند التهيئة
+    for agent_id, agent in enumerate(agents):
+        print(f"Agent {agent_id}: Noise level {agent.noise_level:.2f}, Initialized agents with trust level {agent.trust_values}")
+        initial_trust_levels[agent_id] = agent.trust_values.copy()  # حفظ نسخة من القيم المبدئية
 
     for episode in range(num_episodes):
         print(f"Starting episode {episode + 1}")
 
         # Reset environment
         observations = env.reset()
-
-        # حذف الأهداف القديمة وإنشاء أهداف جديدة
-        for target_list in env.target_objs:
-            for target in target_list:
-                env.canvas.delete(target)
-
-        env.agent_targets = [[] for _ in range(env.num_agents)]
-        env.target_objs = [[] for _ in range(env.num_agents)]
-
-        for i in range(env.num_agents):
-            for _ in range(env.num_targets_per_agent):
-                target_position = env.get_random_target_position()
-                env.agent_targets[i].append(target_position)
-
-                target_x, target_y = target_position
-                triangle_points = [
-                    target_x, target_y - env.UNIT / 4,
-                              target_x - env.UNIT / 4, target_y + env.UNIT / 4,
-                              target_x + env.UNIT / 4, target_y + env.UNIT / 4
-                ]
-                target_obj = env.canvas.create_polygon(
-                    triangle_points,
-                    fill=env.agent_colors[i % len(env.agent_colors)],
-                    outline='black'
-                )
-                env.target_objs[i].append(target_obj)
-
-        print(f"Reinitialized targets for episode {episode + 1}: {env.agent_targets}")
 
         # Tracking variables
         done = [False] * env.num_agents
@@ -266,85 +426,94 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
             step_count += 1
             env.render()
 
-        # Log results for this episode
-        for agent_id in range(env.num_agents):
+        # Log final trust values at the end of each episode
+        for agent_id, agent in enumerate(agents):
+            trust_values = agent.trust_values  # Dictionary of trust values
+            initial_trust_for_agent = initial_trust_levels.get(agent_id, {})  # القيم المبدئية المحفوظة
+
             results.append({
                 "Agent ID": agent_id,
-                "Noise Level": getattr(agents[agent_id], 'noise_level', 0),  # Default noise level to 0 if not available
-                "Steps Taken": agent_steps[agent_id],
-                "Goals Achieved": agent_goals_achieved[agent_id],
+                "Noise Level": agent.noise_level,
+                **{f"Initial Trust Against Agent {other_id}": initial_trust_for_agent.get(other_id, 0) for other_id in range(env.num_agents)},
+                **{f"Trust Against Agent {other_id}": 0.0 if agent_id == other_id else trust_values[other_id] for other_id in range(env.num_agents)},
+                "Steps": agent_steps[agent_id],
                 "Episode": episode + 1
             })
 
+        for agent_id, agent in enumerate(agents):
+            print(f"Agent {agent_id}: Final trust values: {agent.trust_values}")
+
+        # Reset agents for the next episode
+        for i in range(env.num_agents):
+            agents[i].reset()
+
+        # Delete previous goals and create new ones
+        for target_list in env.target_objs:
+            for target in target_list:
+                env.canvas.delete(target)
+
+        env.agent_targets = [[] for _ in range(env.num_agents)]
+        env.target_objs = [[] for _ in range(env.num_agents)]
+
+        for i in range(env.num_agents):
+            for _ in range(env.num_targets_per_agent):
+                target_position = env.get_random_target_position()
+                env.agent_targets[i].append(target_position)
+
+                target_x, target_y = target_position
+                triangle_points = [
+                    target_x, target_y - env.UNIT / 4,
+                    target_x - env.UNIT / 4, target_y + env.UNIT / 4,
+                    target_x + env.UNIT / 4, target_y + env.UNIT / 4
+                ]
+                target_obj = env.canvas.create_polygon(
+                    triangle_points,
+                    fill=env.agent_colors[i % len(env.agent_colors)],
+                    outline='black'
+                )
+                env.target_objs[i].append(target_obj)
+
+        print(f"Reinitialized targets for episode {episode + 1}: {env.agent_targets}")
+
         print(f"Episode {episode + 1} finished after {step_count} steps.\n")
 
-    # Save results to Excel
+    # Transfer the results into DataFrame
     df = pd.DataFrame(results)
 
-    # Create summary statistics grouped by noise level
-    summary = df.groupby("Noise Level").agg({
-        "Steps Taken": ["mean", "std"],  # Mean and standard deviation for steps
-        "Goals Achieved": ["mean", "std", "sum"]  # Mean, std, and total for goals
+
+    # إنشاء ملخص البيانات مع إضافة Initial Trust Level و Steps
+    summary = df.groupby(["Agent ID", "Noise Level"]).agg({
+        **{col: "mean" for col in df.columns if "Trust Against" in col or "Initial Trust Against" in col},  # متوسط الثقة لكل وكيل
+        "Steps": "mean"  # إضافة حساب متوسط الخطوات
     }).reset_index()
 
-    # Rename columns for clarity
-    summary.columns = ["Noise Level", "Avg Steps Taken", "Steps Std Dev", "Avg Goals Achieved", "Goals Std Dev",
-                       "Total Goals"]
-
-    # Write results and summary to Excel
-    with pd.ExcelWriter("experiment_results.xlsx") as writer:
-        df.to_excel(writer, index=False, sheet_name="Detailed Results")
-        summary.to_excel(writer, index=False, sheet_name="Summary")
-        print("Results saved to 'experiment_results.xlsx' with a summary sheet.")
-
-    # Plot results
-    # Plot steps taken vs noise level
-    plt.figure(figsize=(12, 8))
-
-    # Plotting average steps taken for each noise level
-    plt.plot(
-        summary["Noise Level"],
-        summary["Avg Steps Taken"],
-        marker="o",
-        label="Average Steps Taken"
-    )
-
-    # Adding labels and title
-    plt.xlabel("Noise Level")
-    plt.ylabel("Average Steps Taken")
-    plt.title("Average Steps Taken vs Noise Level")
-    plt.grid(True)
-    plt.legend()
-
-    # Save the plot
-    plt.savefig("steps_vs_noise_level.png")
-    plt.show()
-
-    print("Plot saved to 'steps_vs_noise_level.png'.")
-
+    # Write to Excel
+    with pd.ExcelWriter("final_trust_results.xlsx") as writer:
+        df.to_excel(writer, index=False, sheet_name="Detailed Results")  # الصفحة الأولى
+        summary.to_excel(writer, index=False, sheet_name="Summary")  # الصفحة الثانية
+    print("Results saved to 'final_trust_results.xlsx'.")
 
 
 
 if __name__ == "__main__":
-
     gsize=15 #grid size (square)
     gpixels=30 #grid cell size in pixels
 
     is_sensor_active = True #True:  Activate the sensory observation data
     sensory_size = 3 #'is_sensor_active' must be True. The value must be odd, if event will be converted to one level odd number above
 
-    num_agents = 8 #the number of agents will be run in paralel
+    num_agents = 5 #the number of agents will be run in paralel
     num_obstacles = 0 #the number of obstacles
     is_single_target = False #True: all agents have a single target, False: each agent has their own target
     num_targets_per_agent = 10 #'is_single_target' must be true to have an effect
 
     is_agent_silent = False #True: communication among agents is allowed
 
-    num_episodes=1 #the number of episode will be run
-    max_steps_per_episode=500 #each episode will be stopped when max_step is reached
+    num_episodes=30 #the number of episode will be run
+    max_steps_per_episode=1000 #each episode will be stopped when max_step is reached
 
-    eps_moving_targets = 10 #set this value greater than 'num_episodes' to keep the targets in a stationary position
-    eps_moving_obstacles = 10 #set this value greater than 'num_episodes' to keep the obstacles in a stationary position
+    eps_moving_targets = 100000 #set this value greater than 'num_episodes' to keep the targets in a stationary position
+    eps_moving_obstacles = 100000 #set this value greater than 'num_episodes' to keep the obstacles in a stationary position
 
     render = True #True: render the animation into the screen (so far, it is still can not be deactivated)
 
@@ -357,11 +526,13 @@ if __name__ == "__main__":
     reward_target = 50 #reward value when reach the target
 
     is_totally_random = True #True: target and obstacles initial as well as movement position is always random on each call, False: only random at the beginning.
-    animation_speed = 0.2 #smaller is faster
+    animation_speed = 0.1 #smaller is faster
     is_destroy_environment = True #True: automatically close the animation after all episodes end.
 
-    for noise_level in [0.0, 0.2, 0.5, 0.8, 1.0]:
-        for trial in range(5):
+
+    for settings in [[(.0, {1:.6, 2:.6, 3:.8, 4:.9}, .5), (.0, {0: .5, 2:.6, 3:.8, 4:.9}, .5), (.5, {0: .5, 1:.6, 3:.8, 4:.9}, .5), (.9, {0: .5, 1:.6, 2:.6, 4:.9}, .5), (.8, {0: .5, 1:.6, 2:.6, 3:.8}, .5)]]:
+
+        for trial in range(1):
             # Initialize environment
             env = Env(
                 num_agents=num_agents, num_targets_per_agent=num_targets_per_agent, num_obstacles=num_obstacles,
@@ -377,13 +548,13 @@ if __name__ == "__main__":
 
             num_actions = len(env.action_space)
 
-            # Initialize Q-learning agents
-            agents = [SearchAgent(num_actions) for _ in range(num_agents)]
-            for agent in agents:
-                agent.noise_level = noise_level
+            agents = [SearchAgent(index, settings[index][0], settings[index][1], settings[index][2], num_actions) for index in range(num_agents)]
 
             # Run episodes
             run(num_episodes, max_steps_per_episode, agents, num_actions, env)
 
             if is_destroy_environment:
                 env.destroy_environment()
+
+
+
