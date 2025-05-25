@@ -1,0 +1,111 @@
+class Cell:
+    def __init__(self, x, y):
+        self.old = False  # Indicates if the cell has been visited
+        self.x = x
+        self.y = y
+        self.parent = None
+        self.neighbors = []  # List of neighboring cells
+
+
+
+
+def stc(cells, parent, x, starting_cell, results):
+    # check if still have unvisited cells
+    has_unvisited_cell = False
+    for cell in cells:
+        if not cells[cell].old:
+            has_unvisited_cell = True
+    if not has_unvisited_cell:
+        return
+
+    # Step 1: Mark the current cell x as an old cell
+    x.old = True
+    x.parent = parent
+
+    # Add current cell to results
+    results.append((x.x, x.y))
+
+    # Step 2: While x has a new free or partially occupied neighboring cell
+    if has_new_neighbor(x):
+        # Step 2.1: Scan for the first new neighbor of x in counterclockwise order
+        y = find_new_neighbor(x, parent)
+
+        # Step 2.2: Execute STC2(x, y)
+        stc(cells, x, y, starting_cell, results)
+    else:
+        # trackback for parent
+        if x.parent != starting_cell:
+            parent_cell = x.parent
+            stc(cells, parent_cell.parent, parent_cell, starting_cell, results)
+
+def has_new_neighbor(cell):
+    # Check if the cell has a new free or partially occupied neighbor
+    for neighbor in cell.neighbors:
+        if not neighbor.old:  # If neighbor is not marked as old
+            return True
+    return False
+
+
+def find_new_neighbor(cell, parent):
+    # Find the first new neighbor in counterclockwise order starting from parent
+    for neighbor in cell.neighbors:
+        if neighbor != parent and not neighbor.old:
+            return neighbor
+    return None
+
+
+def spiral_stc_coverage(n, init_x, init_y, obstacles):
+    # Building List Dictionary
+    cells = {}
+    for i in range(n):
+        for j in range(n):
+            if (i,j) not in obstacles:
+                cells[(i, j)] = Cell(i, j)
+
+    # Add neighbors for each cell
+    for i in range(n):
+        for j in range(n):
+            if (i, j) not in obstacles:
+                if i > 0:
+                    if (i - 1, j) not in obstacles:
+                        cells[(i, j)].neighbors.append(cells[(i - 1, j)])
+                if j < n - 1:
+                    if (i, j + 1) not in obstacles:
+                        cells[(i, j)].neighbors.append(cells[(i, j + 1)])
+                if i < n - 1:
+                    if (i + 1, j) not in obstacles:
+                        cells[(i, j)].neighbors.append(cells[(i + 1, j)])
+                if j > 0:
+                    if (i, j - 1) not in obstacles:
+                        cells[(i, j)].neighbors.append(cells[(i, j - 1)])
+
+    # Search for cells coverage
+    results = []
+    stc(cells, None, cells[(init_x, init_y)], cells[(init_x, init_y)], results)
+    # Find action base on visited cells
+    actions = []
+    for i in range(1, len(results)):
+        if results[i][0] - results[i - 1][0]  == 1:
+            actions.append('R')
+        if results[i][0] - results[i - 1][0]  == -1:
+            actions.append('L')
+        if results[i][1] - results[i - 1][1]  == 1:
+            actions.append('D')
+        if results[i][1] - results[i - 1][1]  == -1:
+            actions.append('U')
+
+
+    return actions, results
+
+
+if __name__ == "__main__":
+    init_x = 0
+    init_y = 0
+    actions, results = spiral_stc_coverage(5, 0, 0, [(1, 1)])
+    print(len(results))
+    print(results)
+    print(len(actions))
+    print(actions)
+    print(results)
+
+
