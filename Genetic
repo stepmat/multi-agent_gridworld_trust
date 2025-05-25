@@ -1,0 +1,161 @@
+import random
+
+Moves = ['U', 'D', 'L', 'R']
+
+"""
+Generate a random sequence (chromosome) of a given length
+using the allowed moves.
+
+Args:
+    moves (list): List of allowed move characters (e.g. ['U', 'D', 'L', 'R'])
+    length (int): Length of the chromosome (number of moves)
+
+Returns:
+    list: A list of move characters
+"""
+def random_sequence(moves, length):
+    return [random.choice(moves) for _ in range(length)]
+
+class Genetic:
+    def __init__(self, max_x, max_y, x, y, cell_info, population_size = 35, chromosome_length = 10):
+        self.max_x = max_x
+        self.max_y = max_y
+        self.x = x
+        self.y = y
+        # Cell info is represented as dictionary of cells (x, y)
+        # Each value have list of belief of find target and last visit time
+        self.cell_info = cell_info
+        self.population_size = population_size
+        self.chromosome_length = chromosome_length
+
+        # Can be estimated as 2 * max(grid_width, grid_height)
+        self.population = [random_sequence(Moves, chromosome_length) for _ in range(population_size)]
+
+    def fitness(self, chromosome):
+        """
+        Evaluate a path's fitness:
+        - Add cell attribute values for each unique valid cell visited
+        - Penalize for stepping outside the grid or revisiting a cell
+        """
+        rows, cols = self.max_x, self.max_y
+        x, y = self.x, self.y
+
+        visited = set()
+        fitness_score = 0
+        penalty = 0
+
+        move_map = {
+            'U': (0, -1),
+            'D': (0, 1),
+            'L': (-1, 0),
+            'R': (1, 0)
+        }
+
+        for move in chromosome:
+            dx, dy = move_map[move]
+            nx, ny = x + dx, y + dy
+
+            # Check boundaries
+            if 0 <= nx < rows and 0 <= ny < cols:
+                x, y = nx, ny
+                if (x, y) not in visited:
+                    # self.cell_info[(x, y)] belief of find target
+                    fitness_score += self.cell_info[(x, y)]
+                    visited.add((x, y))
+                else:
+                    penalty += 10  # revisiting penalty
+            else:
+                penalty += 1000  # out-of-bound penalty
+
+        return fitness_score - penalty
+
+    #Select one individual
+    #from the population using tournament selection.
+
+    #Args:
+    #    population (list): The list of chromosomes (paths).
+    #    fitnesses (list): Corresponding fitness
+    #values for the population.
+    #    k (int): Number of individuals to participate in the tournament.
+    #    Returns:
+    #    list: A selected chromosome.
+    def tournament_selection(self, population, fitness, k=3):
+        selected_indices = random.sample(range(len(self.population)), k)
+        best_index = selected_indices[0]
+        for idx in selected_indices[1:]:
+            if fitness[idx] > fitness[best_index]:
+                best_index = idx
+        return population[best_index]
+
+    def select(self, population, fitness):
+        return self.tournament_selection(population, fitness, k=3)
+
+    def crossover(self, parent1, parent2):
+        point = random.randint(1, len(parent1) - 2)
+        child1 = parent1[:point] + parent2[point:]
+        child2 = parent2[:point] + parent1[point:]
+        return child1, child2
+
+    def mutate(self, chromosome, mutation_rate=0.1):
+        return [move if random.random() > mutation_rate else random.choice(Moves) for move in chromosome]
+
+    def generate_path(self, max_generations = 10):
+        best = self.population[0]
+
+        for generation in range(max_generations):
+            fitness = [self.fitness(path) for path in self.population]
+
+            new_population = []
+            while len(new_population) < self.population_size:
+                parent1 = self.select(self.population, fitness)
+                parent2 = self.select(self.population, fitness)
+                child1, child2 = self.crossover(parent1, parent2)
+                new_population.extend([self.mutate(child1), self.mutate(child2)])
+
+            self.population = new_population
+
+            # Optional: store best individual
+            best_current = max(self.population, key=lambda path: self.fitness(path))
+
+            if self.fitness(best_current) > self.fitness(best):
+                best = best_current
+
+        return best
+
+# Each cell has two attribute blief of find taget initially .1 and [update with (1-sensor_accuracy) * last_briefly] and last visited time initially 10 and update each agent move [set 0 when visit cell and add 1 for all not visited cell]
+# Instead of randon search find the path that achieve max prop of find target and balance visit target frequently as follows:
+# Using genetic algorithm to  plan a path with max (briefly of find taget * last visited time) for all cells in the path
+# When the agent find a target for itself it set the last_briefly of cell to zero so no need to visit it again.
+# If it find the target for another agent it leave its report may be incorrect due to noise.
+# After all path cell is visited, and new path is planned again.
+# Even the fitness function try to avoid move outside or repeat visit cell but special handel don on each agent to not move outside region but can repeat visit cell.
+
+if __name__ == "__main__":
+    cell_info = {}
+    for x in range(15):
+        for y in range(15):
+            cell_info[(x, y)] = .1
+
+    cell_info[(6, 6)] = .3
+    cell_info[(7, 7)] = .3
+    cell_info[(8, 8)] = .3
+
+
+    g = Genetic(15, 15, 4 , 5, cell_info=cell_info, population_size=100, chromosome_length=15)
+    c = g.generate_path(100)
+    print(c)
+
+    move_map = {
+        'U': (-1, 0),
+        'D': (1, 0),
+        'L': (0, -1),
+        'R': (0, 1)
+    }
+
+    x = 4
+    y = 5
+    for move in c:
+        dx, dy = move_map[move]
+        nx, ny = x + dx, y + dy
+        x, y = nx, ny
+        print(x, y)
