@@ -7,7 +7,10 @@ import numpy as np
 import sys
 import random
 import statistics
-
+# SAR
+from genetic import Genetic
+from spanning import spiral_stc_coverage
+# SAR
 # Add the path to the 'env' folder to sys.path
 sys.path.append('env')
 
@@ -30,10 +33,12 @@ class SearchAgent:
         self.false_interaction = {}
 
         # self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
-        if isinstance(self.init_trust_level, dict):
-            self.trust_values = self.init_trust_level
-        else:
-            self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+        if isinstance(self.init_trust_level, dict) == False:
+            self.init_trust_level = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+
+        self.trust_values = self.init_trust_level.copy()
+
+        self.direct_trust = self.init_trust_level.copy()
 
         self.trust_values_history = {other_id: [self.trust_values[other_id]] for other_id in range(num_agents) if
                                             other_id != self.agent_id}
@@ -41,157 +46,252 @@ class SearchAgent:
         self.true_interaction = {}
         self.false_interaction = {}
 
-        for other_agent_id in range(env.num_agents):
-            if other_agent_id != self.agent_id:
-                self.true_interaction[other_agent_id] = self.trust_values[other_agent_id]
-                self.false_interaction[other_agent_id] = 0
-
         print(f"Agent {self.agent_id}: Noise level {self.noise_level:.2f}, Initialized agents with trust level {self.trust_values}")
+        
+        self.incorrect_decsion_impact = 0
+        
+        # risk-aware
+        self.current_location = [0, 0]
+        # risk-aware
 
+        # SAR
+        self.cell_info = {}
+        for x in range(gsize):
+            for y in range(gsize):
+                self.cell_info[(x, y)] = .1
+
+        self.path_steps = 15
+
+        self.path = []
+
+        self.time_steps = 0
+
+        self.target_collection = {}
+
+        self.target_collection_rewards_before_time_step = 200
+        # SAR
 
     def reset(self):
+        self.targets_seen = []
+
         self.memory = []
+
+        self.trust_values = self.init_trust_level.copy()
+
+        self.direct_trust = self.init_trust_level.copy()
+
+        self.trust_values_history = {other_id: [self.trust_values[other_id]] for other_id in range(num_agents) if
+                                            other_id != self.agent_id}
 
         self.true_interaction = {}
         self.false_interaction = {}
+        
+        self.incorrect_decsion_impact = 0
+        
+        # risk-aware
+        self.current_location = [0, 0]
+        # risk-aware
 
-        self.targets_seen = []
+        # SAR
+        self.cell_info = {}
+        for x in range(gsize):
+            for y in range(gsize):
+                self.cell_info[(x, y)] = .1
 
-        # self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
-        if isinstance(self.init_trust_level, dict):
-            self.trust_values = self.init_trust_level
-        else:
-            self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+        self.path = []
+        self.time_steps = 0
 
-
+        self.target_collection = {}
+        # SAR
 
     def analyse_sensor_data(self, agent_id, coordinate_observation, sensor_data_observation):
-        for i in range(len(sensor_data_observation)):
-            for j in range(len(sensor_data_observation[i])):
-                data = sensor_data_observation[i][j]
-                location = [coordinate_observation[0] + j - len(sensor_data_observation[i])//2,
-                           coordinate_observation[1] + i - len(sensor_data_observation)//2]
+        # risk-aware
+        self.current_location = [coordinate_observation[0], coordinate_observation[1]]
+        # SAR
+        self.time_steps = self.time_steps + 1
+        self.cell_info[(self.current_location[0], self.current_location[1])] = self.cell_info[(self.current_location[0], self.current_location[1])] * .5
+        # SAR
+        # risk-aware
+        # SAR 2
+        if False:
+            for i in range(len(sensor_data_observation)):
+                for j in range(len(sensor_data_observation[i])):
+                    data = sensor_data_observation[i][j]
+                    location = [coordinate_observation[0] + j - len(sensor_data_observation[i])//2,
+                               coordinate_observation[1] + i - len(sensor_data_observation)//2]
 
+                    if data != None and 'target_' + str(agent_id) in data:
+                        if location not in [target["location"] for target in self.targets_seen]:
+                            self.targets_seen.append({
+                                "location": location,
+                                "verified": False,
+                                "source": "self",
+                                "target": data
+                            })
+                            print(f"Agent {agent_id}: Added target at {location} to targets_seen")
 
-                if data != None and 'target_' + str(agent_id) in data:
-                    if location not in [target["location"] for target in self.targets_seen]:
-                        self.targets_seen.append({
-                            "location": location,
-                            "verified": False,
-                            "source": "self",
-                            "target": data
-                        })
-                        print(f"Agent {agent_id}: Added target at {location} to targets_seen")
-
-                #    update the meemory agent_id
-                if data is not None and 'target_' + str(agent_id) in data:  # Check for target
-                    self.update_memory(location, data, agent_id)  #  update_memory
-
-
+                    #    update the meemory agent_id
+                    if data is not None and 'target_' + str(agent_id) in data:  # Check for target
+                        self.update_memory(location, data, agent_id)  #  update_memory
+        # SAR 2
 
     def analyse_communication(self, agent_id, comm_observation):
+        # SAR
+        if False:  # Stop communication
+            # SAR
+            for comm in comm_observation:
+                origin_location = comm[0]
+                sensor_data_observation = comm[1]
+                reported_by = comm[2]
 
-        for comm in comm_observation:
-            origin_location = comm[0]
-            sensor_data_observation = comm[1]
-            reported_by = comm[2]
+                if apply_trust_threshold and self.trust_values[reported_by] < self.min_trust_level:
+                    print(f"Agent {agent_id}: Non trusted communication from Agent {reported_by}")
+                else:
+                    for i in range(len(sensor_data_observation)):
+                        for j in range(len(sensor_data_observation[i])):
+                            data = sensor_data_observation[i][j]
+                            location = [origin_location[0] + j - len(sensor_data_observation[i])//2,
+                                       origin_location[1] + i - len(sensor_data_observation)//2]
+                            if data != None and 'target_' + str(agent_id) in data:
+                                if [target["target"] for target in self.targets_seen if
+                                    target["target"] == data and target["source"] == f"agent_{reported_by}"]:
+                                    print("ignore repeated report by agent_{reported_by} for {data}")
+                                else:
+                                    if location not in [target["location"] for target in self.targets_seen]:
+                                        self.targets_seen.append({
+                                            "location": location,
+                                            "verified": False,
+                                            "source": f"agent_{reported_by}",
+                                            "target": data,
+                                            # risk-aware
+                                            "current_location": self.current_location
+                                            # risk-aware
+                                        })
 
-            if apply_trust_threshold and self.trust_values[reported_by] < self.min_trust_level:
-                print(f"Agent {agent_id}: Non trusted communication from Agent {reported_by}")
-            else:
-                for i in range(len(sensor_data_observation)):
-                    for j in range(len(sensor_data_observation[i])):
-                        data = sensor_data_observation[i][j]
-                        location = [origin_location[0] + j - len(sensor_data_observation[i])//2,
-                                   origin_location[1] + i - len(sensor_data_observation)//2]
-                        if data != None and 'target_' + str(agent_id) in data:
-                            if [target["target"] for target in self.targets_seen if
-                                target["target"] == data and target["source"] == f"agent_{reported_by}"]:
-                                print("ignore repeated report by agent_{reported_by} for {data}")
-                            else:
-                                if location not in [target["location"] for target in self.targets_seen]:
-                                    self.targets_seen.append({
-                                        "location": location,
-                                        "verified": False,
-                                        "source": f"agent_{reported_by}",
-                                        "target": data
-                                    })
-
-                                    print(f"Agent {agent_id}: Added target at {location} from Agent {reported_by}")
-                                    # 12/17/2024
+                                        print(f"Agent {agent_id}: Added target at {location} from Agent {reported_by}")
+                                        # 12/17/2024
 
     def select_action(self, coordinate_observation, agent_id):
-        print(f"Agent {agent_id}: Current targets seen: {self.targets_seen}")
+        # SAR
+        #if len([x for x in self.targets_seen if x['verified'] == False]) == 0:
+        if len(self.targets_seen) == 0:
+            if len(self.path) == 0:
+                # SAR 2
+                #g = Genetic(gsize, gsize, self.current_location[0], self.current_location[1], cell_info=self.cell_info, population_size=100, chromosome_length=self.path_steps)
+                #self.path = g.generate_path(100)
+                obstacle_positions = env.obstacle_positions.copy()
+                for obstacle_index in range(len(obstacle_positions)):
+                    obstacle_positions[obstacle_index] = (int((obstacle_positions[obstacle_index][0] - 15) / 30), int((obstacle_positions[obstacle_index][1] - 15) / 30))
+                self.path, results = spiral_stc_coverage(gsize, self.current_location[0], self.current_location[1], obstacle_positions)
+                for obstacle in obstacle_positions:
+                    if obstacle in results:
+                        print("Error")
+                # SAR 2
 
-        self.targets_seen = list({tuple(target["location"]): target for target in self.targets_seen}.values())
+            if self.path[0] == 'U':
+                self.path.pop(0)
+                if self.current_location[1] == 0:
+                    return np.int64(2)
+                else:
+                    return np.int64(1)
+            if self.path[0] == 'D':
+                self.path.pop(0)
+                if self.current_location[1] == gsize - 1:
+                    return np.int64(1)
+                else:
+                    return np.int64(2)
+            if self.path[0] == 'L':
+                self.path.pop(0)
+                if self.current_location[0] == 0:
+                    return np.int64(4)
+                else:
+                    return np.int64(3)
+            if self.path[0] == 'R':
+                self.path.pop(0)
+                if self.current_location[0] == gsize - 1:
+                    return np.int64(3)
+                else:
+                    return np.int64(4)
 
-        if len(self.targets_seen) > 0:
-            closest_target = None
-            closest_target_distance = float('inf')
-            for target in self.targets_seen:
-                target_coordinate = target["location"]
-                horizontal_distance = target_coordinate[0] - coordinate_observation[0]
-                vertical_distance = target_coordinate[1] - coordinate_observation[1]
-                distance = abs(horizontal_distance) + abs(vertical_distance)
-                print(f"Agent {agent_id}: Target {target_coordinate} at distance {distance}")
 
-                if distance < closest_target_distance:
-                    closest_target_distance = distance
-                    closest_target = target_coordinate
+        else:
+            print(f"Agent {agent_id}: Current targets seen: {self.targets_seen}")
 
-            if closest_target:
-                # Check the validity of the target
-                grid_width = gsize
-                grid_height = gsize
-                if not (0 <= closest_target[0] < grid_width and 0 <= closest_target[1] < grid_height):
-                    print(f"Invalid target location {closest_target}, skipping target.")
-                    closest_target = None
+            self.targets_seen = list({tuple(target["location"]): target for target in self.targets_seen}.values())
 
-                if closest_target and closest_target_distance == 0:
-                    print(f"Agent {agent_id}: Reached target at {closest_target}, removing from targets_seen.")
-                    self.targets_seen = [t for t in self.targets_seen if tuple(t["location"]) != tuple(closest_target)]
-                    return 0
+            if len(self.targets_seen) > 0:
+                closest_target = None
+                closest_target_distance = float('inf')
+                for target in self.targets_seen:
+                    target_coordinate = target["location"]
+                    horizontal_distance = target_coordinate[0] - coordinate_observation[0]
+                    vertical_distance = target_coordinate[1] - coordinate_observation[1]
+                    distance = abs(horizontal_distance) + abs(vertical_distance)
+                    print(f"Agent {agent_id}: Target {target_coordinate} at distance {distance}")
+
+                    if distance < closest_target_distance:
+                        closest_target_distance = distance
+                        closest_target = target_coordinate
 
                 if closest_target:
-                    print(f"Agent {agent_id}: Moving towards target at {closest_target}")
-                    horizontal_distance = closest_target[0] - coordinate_observation[0]
-                    vertical_distance = closest_target[1] - coordinate_observation[1]
-                    if abs(horizontal_distance) >= abs(vertical_distance):
-                        return 3 if horizontal_distance < 0 else 4
-                    else:
-                        return 1 if vertical_distance < 0 else 2
-        else:
-            print(f"Agent {agent_id}: No valid targets, attempting random action.")
-            possible_actions = [1, 2, 3, 4]
-            return np.random.choice(possible_actions)
+                    # Check the validity of the target
+                    grid_width = gsize
+                    grid_height = gsize
+                    if not (0 <= closest_target[0] < grid_width and 0 <= closest_target[1] < grid_height):
+                        print(f"Invalid target location {closest_target}, skipping target.")
+                        closest_target = None
 
-    def update_trust(self, other_agent_id, interaction_success):
+                    if closest_target and closest_target_distance == 0:
+                        print(f"Agent {agent_id}: Reached target at {closest_target}, removing from targets_seen.")
+                        self.targets_seen = [t for t in self.targets_seen if tuple(t["location"]) != tuple(closest_target)]
+                        return 0
+
+                    if closest_target:
+                        print(f"Agent {agent_id}: Moving towards target at {closest_target}")
+                        horizontal_distance = closest_target[0] - coordinate_observation[0]
+                        vertical_distance = closest_target[1] - coordinate_observation[1]
+                        if abs(horizontal_distance) >= abs(vertical_distance):
+                            return 3 if horizontal_distance < 0 else 4
+                        else:
+                            return 1 if vertical_distance < 0 else 2
+            else:
+                print(f"Agent {agent_id}: No valid targets, attempting random action.")
+                possible_actions = [1, 2, 3, 4]
+                return np.random.choice(possible_actions)
+
+    # risk-aware
+    def update_trust(self, other_agent_id, interaction_success, location):
+    # risk-aware
         if agents[other_agent_id].noise_level == 0:
             interaction_success = True
 
         if not (apply_trust_threshold and self.trust_values[other_agent_id] < self.min_trust_level):
             if other_agent_id not in self.true_interaction:
-                self.true_interaction[other_agent_id] = 1
-                self.false_interaction[other_agent_id] = 1
+                self.true_interaction[other_agent_id] = 0
+                self.false_interaction[other_agent_id] = 0
 
             if interaction_success:
                 self.true_interaction[other_agent_id] = self.true_interaction[other_agent_id] + 1
+                interaction_result = 1
             else:
                 self.false_interaction[other_agent_id] = self.false_interaction[other_agent_id] + 1
+                interaction_result = 0
+                
+                # risk-aware
+                self.incorrect_decsion_impact += abs(self.current_location[0] - location[0]) + abs(self.current_location[1] - location[1])
+                # risk-aware
 
             if other_agent_id in self.trust_values:
                 # privouse trust
-                previous_trust = self.trust_values[other_agent_id]
-
-                # the result of interaction
-                interaction_result = 1.0 if interaction_success else 0.0
+                previous_trust = self.direct_trust[other_agent_id]
 
                 # Only direct trust
-                updated_trust = alpha1 * previous_trust + (1 - alpha1) * (self.true_interaction[other_agent_id] / (self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id]))
+                self.direct_trust[other_agent_id] = alpha1 * previous_trust + (1 - alpha1) * (self.true_interaction[other_agent_id] / (self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id]))
+
+                updated_trust = self.direct_trust[other_agent_id]
 
                 if use_indirect:
-                    direct_trust = (self.true_interaction[other_agent_id] / (
-                                    self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id]))
+                    direct_trust = self.direct_trust[other_agent_id]
 
                     # Calculate Indirect trust
                     indirect_trust = 0.0
@@ -355,11 +455,16 @@ def get_action(agent_id, observation, num_actions, agents, env):
                             if location == target["location"]:
                                 if data != None and 'target_' + str(agent_id) in data:
                                     target["verified"] = True
+                                    # SAR
+                                    agents[agent_id].target_collection[data] = agents[agent_id].time_steps
+                                    # SAR
                                     if 'agent' in target['source']:
                                         reported_by = int(target['source'].split("_")[1])
                                         print(f"Reach reported target location in {location} report by {reported_by}")
                                         # Update trust towards the reported agent
-                                        agents[agent_id].update_trust(reported_by, interaction_success=True)
+                                        # risk-aware
+                                        agents[agent_id].update_trust(reported_by, interaction_success=True, location=location)
+                                        # risk-aware
                                 else:
                                     if 'agent' in target['source']:
                                         target["verified"] = True
@@ -370,9 +475,13 @@ def get_action(agent_id, observation, num_actions, agents, env):
                                             if self_target["location"] == location and self_target["source"] == "self":
                                                 self_target_seen = True
                                         if self_target_seen:
-                                            agents[agent_id].update_trust(reported_by, interaction_success=True)
+                                            # risk-aware
+                                            agents[agent_id].update_trust(reported_by, interaction_success=True, location=location)
+                                            # risk-aware
                                         else:
-                                            agents[agent_id].update_trust(reported_by, interaction_success=False)
+                                            # risk-aware
+                                            agents[agent_id].update_trust(reported_by, interaction_success=False, location=location)
+                                            # risk-aware
 
     else:
         print(f"Agent {agent_id}: No communication data available this step.")
@@ -395,6 +504,10 @@ def get_action(agent_id, observation, num_actions, agents, env):
 
 results = []
 
+# risk-aware
+risk_aware_results = []
+# risk-aware
+
 def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -407,7 +520,12 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
         print(f"Agent {agent_id}: Noise level {agent.noise_level:.2f}, Initialized agents with trust level {agent.trust_values}")
         initial_trust_levels[agent_id] = agent.trust_values.copy()  # حفظ نسخة من القيم المبدئية
 
+
     trust_error = []
+    
+    
+
+    execluded_episode = []          # Episode list with step greater than max_episode_steps
     for episode in range(num_episodes):
         print(f"Starting episode {episode + 1}")
 
@@ -420,6 +538,7 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
         agent_steps = {agent_id: 0 for agent_id in range(env.num_agents)}  # Track steps per agent
         agent_goals_achieved = {agent_id: 0 for agent_id in range(env.num_agents)}  # Track goals achieved per agent
 
+        step = 0
         while not all(done) and step_count < max_steps_per_episode:
             actions = []
             for agent_id in range(env.num_agents):
@@ -440,7 +559,13 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
 
             diff_dict = {}
             diff_dict["episode"] = episode
+            step += 1
+            diff_dict["step_id"] = step
 
+            # risk-aware
+            incorrect_decsion_impact = 0
+            # risk-aware
+            
             # Add Record to trust_error
             for agent_id in range(env.num_agents):
                 value = 0
@@ -457,9 +582,21 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
                 diff_dict[str(agent_id) + "_trust"] = value
                 diff_dict[str(agent_id) + "_e_rate"] = step_error_rate
                 diff_dict[str(agent_id) + "_var"] = statistics.variance(step_error_list)
+                
+                # risk-aware
+                incorrect_decsion_impact = incorrect_decsion_impact + agents[agent_id].incorrect_decsion_impact
+                # risk-aware
 
             trust_error.append(diff_dict)
+            
+            
+            # risk-aware
+            risk_aware_results.append({"episode": episode, "step_id": step, "incorrect_decsion_impact": incorrect_decsion_impact / env.num_agents})
+            # risk-aware
 
+            # Check number of episode steps
+            if step > max_episode_steps:
+                execluded_episode.append(episode)
 
             # Check if goals are achieved and update counters
             for agent_id in range(env.num_agents):
@@ -487,6 +624,11 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
             })
         for agent_id, agent in enumerate(agents):
             print(f"Agent {agent_id}: Final trust values: {agent.trust_values}")
+
+            # SAR
+            for target_id in agent.target_collection:
+                print("Target :" + target_id + " Collected in step " + str(agent.target_collection[target_id]) + " Reward = " + str(agent.target_collection_rewards_before_time_step - agent.target_collection[target_id]))
+            # SAR
 
         # Reset agents for the next episode
         for i in range(env.num_agents):
@@ -524,6 +666,26 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
 
     # Trust variation
     trust_error_pd = pd.DataFrame(trust_error)
+    # Remove execluded_episode
+    trust_error_pd = trust_error_pd[~trust_error_pd['episode'].isin(execluded_episode)]
+
+    trust_error_summary = trust_error_pd.groupby(["step_id"]).agg({
+        **{col: "mean" for col in trust_error_pd.columns if col != "step_id" and col != "episode"}
+    }).reset_index()
+
+
+    
+        
+    # risk-aware
+    risk_aware_results_pd = pd.DataFrame(risk_aware_results)
+    
+    risk_aware_results_pd = risk_aware_results_pd[~risk_aware_results_pd['episode'].isin(execluded_episode)]
+
+    risk_aware_results_pd_summary = risk_aware_results_pd.groupby(["step_id"]).agg({
+        **{col: "mean" for col in risk_aware_results_pd.columns if col != "step_id" and col != "episode"}
+    }).reset_index()
+    # risk-aware
+
 
     # Transfer the results into DataFrame
     df = pd.DataFrame(results)
@@ -540,6 +702,13 @@ def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
         df.to_excel(writer, index=False, sheet_name="Detailed Results")  # الصفحة الأولى
         summary.to_excel(writer, index=False, sheet_name="Summary")  # الصفحة الثانية
         trust_error_pd.to_excel(writer, index=False, sheet_name="Trust Error")  # الصفحة الأولى
+        trust_error_summary.to_excel(writer, index=False, sheet_name="Trust Error Summary")  # الصفحة الأولى
+        # risk-aware
+        risk_aware_results_pd.to_excel(writer, index=False, sheet_name="Risk Aware results")  
+        risk_aware_results_pd_summary.to_excel(writer, index=False, sheet_name="Risk Aware Summary")  
+        # risk-aware
+
+
 
 
     print(f"Results saved to '{file_name}'.")
@@ -551,19 +720,19 @@ if __name__ == "__main__":
     gpixels=30 #grid cell size in pixels
 
     is_sensor_active = True #True:  Activate the sensory observation data
-    sensory_size = 3 #'is_sensor_active' must be True. The value must be odd, if event will be converted to one level odd number above
+    sensory_size = 1 #'is_sensor_active' must be True. The value must be odd, if event will be converted to one level odd number above
 
-    default_initial_trust = .9
+    default_initial_trust = .7
 
-    num_agents = 5 #the number of agents will be run in paralel
-    num_obstacles = 0 #the number of obstacles
+    num_agents = 4 #the number of agents will be run in paralel
+    num_obstacles = 5 #the number of obstaclesf
     is_single_target = False #True: all agents have a single target, False: each agent has their own target
-    num_targets_per_agent = 20 #'is_single_target' must be true to have an effect
+    num_targets_per_agent = 4 #'is_single_target' must be true to have an effect
 
     is_agent_silent = False #True: communication among agents is allowed
 
-    num_episodes=1 #the number of episode will be run
-    max_steps_per_episode=5000 #each episode will be stopped when max_step is reached
+    num_episodes=3 #the number of episode will be run
+    max_steps_per_episode=2000 #each episode will be stopped when max_step is reached
 
     eps_moving_targets = 100000 #set this value greater than 'num_episodes' to keep the targets in a stationary position
     eps_moving_obstacles = 100000 #set this value greater than 'num_episodes' to keep the obstacles in a stationary position
@@ -580,22 +749,21 @@ if __name__ == "__main__":
 
     apply_trust_threshold=True
     use_indirect=True
-    alpha1 = .8
-    alpha2 = .8
+    alpha1 = .41
+    alpha2 = .41
     coordinate_noise = True
     sensor_data_noise = False
-
+    max_episode_steps = 10000         # Max steps per each to episode report in trust error report
 
     is_totally_random = True #True: target and obstacles initial as well as movement position is always random on each call, False: only random at the beginning.
-    animation_speed = 0.00001 #smaller is faster
+    animation_speed = 0.1 #smaller is faster
     is_destroy_environment = True #True: automatically close the animation after all episodes end.
 
 
-    for settings in [[(.0, default_initial_trust, .4),
-                      (.0, default_initial_trust, .4),
-                      (.5, default_initial_trust, .4),
-                      (.8, default_initial_trust, .4),
-                      (.9, default_initial_trust, .4)]]:
+    for settings in [[(.5, default_initial_trust, .3),
+                      (.5, default_initial_trust, .3),
+                      (.5, default_initial_trust, .3),
+                      (.5, default_initial_trust, .3)]]:
 
         for trial in range(1):
             # Initialize environment
@@ -620,3 +788,4 @@ if __name__ == "__main__":
 
             if is_destroy_environment:
                 env.destroy_environment()
+
