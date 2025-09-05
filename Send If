@@ -1,0 +1,1324 @@
+""" Ver10
+Multi-Agent Dynamic Grid World Environment
+Created by: Ardianto Wibowo
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+import sys
+import random
+import statistics
+
+from act_2 import ACTConsumer, Witness, ServiceProvider
+from best_reward_sequence import TargetCollectionGA
+from boustrophedon import BoustrophedonCoveragePlanner
+from wavefront import MultiAgentWavefront
+from spanning import spiral_stc_coverage
+
+# Add the path to the 'env' folder to sys.path
+sys.path.append('env')
+
+from env.ma_gridworld import Env
+from copy import deepcopy
+
+
+class SearchAgent:
+
+    def __init__(self, agent_id, noise_level, init_trust_level, min_trust_level, num_actions):
+        self.num_actions = num_actions
+        self.targets_seen = []
+        self.collected_targets = []
+        self.targets_seen_count = 0
+        self.step = 0
+        self.noise_level = noise_level
+        self.agent_id = agent_id
+        self.init_trust_level = init_trust_level  # round(random.uniform(0.3, 1.0), 2)
+        self.min_trust_level = min_trust_level
+
+        self.memory = []  # to store verified data
+
+        self.true_interaction = {}
+        self.false_interaction = {}
+        self.interaction = {}
+
+        # self.trust_values = {other_id: self.init_trust_level for other_id in range(num_agents) if other_id != self.agent_id}
+        if isinstance(self.init_trust_level, dict) == False:
+            self.init_trust_level = {other_id: self.init_trust_level for other_id in range(num_agents) if
+                                     other_id != self.agent_id}
+
+        self.trust_values = self.init_trust_level.copy()
+
+        self.direct_trust = self.init_trust_level.copy()
+
+        self.trust_values_history = {other_id: [self.trust_values[other_id]] for other_id in range(num_agents) if
+                                     other_id != self.agent_id}
+
+        self.true_interaction = {}
+        self.false_interaction = {}
+
+        print(
+            f"Agent {self.agent_id}: Noise level {self.noise_level:.2f}, Initialized agents with trust level {self.trust_values}")
+
+        self.incorrect_decsion_impact = 0
+
+        # risk-aware
+        self.current_location = [0, 0]
+        self.init_current_location = [0, 0]
+        # risk-aware
+
+        # SAR
+        self.cell_info = {}
+        for x in range(gsize):
+            for y in range(gsize):
+                self.cell_info[(x, y)] = .1
+
+        self.path_steps = 15
+
+        self.path = []
+        self.all_path = []
+        self.visitend_agent_paths = []
+        self.path_actions = []
+
+        self.time_steps = 0
+
+        self.target_collection = {}
+
+        self.target_collection_rewards_before_time_step = 200
+        # SAR
+
+        # ACT
+        witnesses = []
+
+        for agent in range(num_agents):
+            if agent != agent_id:
+                wit = Witness(str(agent), honesty=init_trust_level)
+                witnesses.append(wit)
+
+        self.consumer = ACTConsumer(str(self.agent_id), witnesses, M=3)
+        #self.service = ServiceProvider("s_" + str(self.agent_id), p_success=1.0 - noise_level)
+
+
+    def generate_path_actions(self):
+        path = self.path
+        actions = []
+        for i in range(1, len(path)):
+            if path[i][0] - path[i - 1][0] == 1:
+                actions.append('R')
+            if path[i][0] - path[i - 1][0] == -1:
+                actions.append('L')
+            if path[i][1] - path[i - 1][1] == 1:
+                actions.append('D')
+            if path[i][1] - path[i - 1][1] == -1:
+                actions.append('U')
+
+        return actions
+
+    def build_path(self):
+        if search_algorithm == 1:
+            actions, results = spiral_stc_coverage(gsize, self.current_location[0], self.current_location[1], [], False)
+            self.path = actions
+            print("AgentID" + str(self.agent_id))
+            print(env.obstacle_location.copy())
+            print(self.current_location.copy())
+            print(self.path)
+
+        if search_algorithm == 4:
+            wave_front = MultiAgentWavefront((gsize, gsize), [(self.current_location.copy()[0], self.current_location.copy()[1])])
+            paths = wave_front.generate_paths()
+            self.path = paths[0]
+            print("AgentID" + str(self.agent_id))
+            print(env.obstacle_location.copy())
+            print(self.current_location.copy())
+            print(self.path)
+
+        if search_algorithm == 44:
+            agent_pos = [(int(env.initial_agent_positions[agent][0] / gpixels),
+                          int(env.initial_agent_positions[agent][1] / gpixels)) for agent in range(num_agents)]
+
+            wave_front = MultiAgentWavefront((gsize, gsize), agent_pos)
+            paths = wave_front.generate_paths()
+            self.all_path = paths.copy()
+            self.path = paths[self.agent_id]
+            print("AgentID" + str(self.agent_id))
+            print(env.obstacle_location.copy())
+            print(self.current_location.copy())
+            print(self.path)
+            self.visitend_agent_paths.append(self.agent_id)
+
+        if search_algorithm == 5:
+            planner = BoustrophedonCoveragePlanner(gsize, env.obstacle_location.copy(), self.current_location.copy())
+            self.path = planner.final_path.copy()
+            self.path_actions = self.generate_path_actions().copy()
+            self.path = self.path_actions.copy()
+            print("AgentID" + str(self.agent_id))
+            print(env.obstacle_location.copy())
+            print(self.current_location.copy())
+            print(self.path)
+
+
+    def reset(self):
+        self.targets_seen = []
+        self.targets_seen_count = 0
+        self.collected_targets = []
+        self.step = 0
+
+        self.memory = []
+
+        self.trust_values = self.init_trust_level.copy()
+
+        self.direct_trust = self.init_trust_level.copy()
+
+        self.trust_values_history = {other_id: [self.trust_values[other_id]] for other_id in range(num_agents) if
+                                     other_id != self.agent_id}
+
+        self.true_interaction = {}
+        self.false_interaction = {}
+
+        self.incorrect_decsion_impact = 0
+
+        # risk-aware
+        #self.current_location = [0, 0]
+        # risk-aware
+
+        # SAR
+        self.cell_info = {}
+        for x in range(gsize):
+            for y in range(gsize):
+                self.cell_info[(x, y)] = \
+                    .1
+
+        self.path = []
+        self.all_path = []
+        self.visitend_agent_paths = []
+        self.path_actions = []
+        self.time_steps = 0
+
+        self.target_collection = {}
+        # SAR
+
+        self.build_path()
+
+        # ACT
+        witnesses = []
+
+        for agent in range(num_agents):
+            if agent != self.agent_id:
+                wit = Witness(str(agent), honesty=next(iter(self.init_trust_level.values())))
+                witnesses.append(wit)
+
+        self.consumer = ACTConsumer(str(self.agent_id), witnesses, M=3)
+        #self.service = ServiceProvider("s_" + str(self.agent_id), p_success=1.0 - noise_level)
+
+    def analyse_sensor_data(self, agent_id, coordinate_observation, sensor_data_observation):
+        # risk-aware
+        self.current_location = [coordinate_observation[0], coordinate_observation[1]]
+        # SAR
+        self.time_steps = self.time_steps + 1
+        self.cell_info[(self.current_location[0], self.current_location[1])] = self.cell_info[(self.current_location[0],
+                                                                                               self.current_location[
+                                                                                                   1])] * .5
+        # SAR
+        # risk-aware
+        # SAR 2
+        if True:
+            for i in range(len(sensor_data_observation)):
+                for j in range(len(sensor_data_observation[i])):
+                    data = sensor_data_observation[i][j]
+                    location = [coordinate_observation[0] + j - len(sensor_data_observation[i]) // 2,
+                                coordinate_observation[1] + i - len(sensor_data_observation) // 2]
+
+                    if data != None and 'target_' + str(agent_id) in data:
+                        if location not in [target["location"] for target in self.targets_seen]:
+                            self.targets_seen.append({
+                                "location": location,
+                                "verified": False,
+                                "source": "self",
+                                "target": data
+                            })
+                            print(f"Agent {agent_id}: Added target at {location} to targets_seen")
+
+                    #    update the meemory agent_id
+                    if data is not None and 'target_' + str(agent_id) in data:  # Check for target
+                        self.update_memory(location, data, agent_id)  # update_memory
+        # SAR 2
+
+    def analyse_communication(self, agent_id, comm_observation):
+        # SAR
+        if True:  # Stop communication
+            # SAR
+            for comm in comm_observation:
+                origin_location = comm[0]
+                sensor_data_observation = comm[1]
+                reported_by = comm[2]
+
+                if apply_trust_threshold and self.trust_values[reported_by] < self.min_trust_level:
+                    print(f"Agent {agent_id}: Non trusted communication from Agent {reported_by}")
+                else:
+                    for i in range(len(sensor_data_observation)):
+                        for j in range(len(sensor_data_observation[i])):
+                            data = sensor_data_observation[i][j]
+                            location = [origin_location[0] + j - len(sensor_data_observation[i]) // 2,
+                                        origin_location[1] + i - len(sensor_data_observation) // 2]
+                            if data != None and 'target_' + str(agent_id) in data:
+                                if [target["target"] for target in self.targets_seen if
+                                    target["target"] == data and target["source"] == f"agent_{reported_by}"]:
+                                    print("ignore repeated report by agent_{reported_by} for {data}")
+                                else:
+                                    if location not in [target["location"] for target in self.targets_seen]:
+                                        self.targets_seen.append({
+                                            "location": location,
+                                            "verified": False,
+                                            "source": f"agent_{reported_by}",
+                                            "target": data,
+                                            # risk-aware
+                                            "current_location": self.current_location
+                                            # risk-aware
+                                        })
+
+                                        print(f"Agent {agent_id}: Added target at {location} from Agent {reported_by}")
+                                        # 12/17/2024
+
+    # SAR 3
+
+    def get_nearest_region(self):
+        # check nearest cell in unvisited regions
+        nearest_cell = None
+        nearest_region = None
+        nearest_cell_position_in_region = None
+
+        for col in range(int(gsize / small_square_size)):
+            for row in range(int(gsize / small_square_size)):
+                if regions[(col, row)] == 0:
+                    for i in range(small_square_size):
+                        cell_x = col * small_square_size + i
+                        for j in range(small_square_size):
+                            cell_y = row * small_square_size + j
+
+                            if nearest_cell is None:
+                                nearest_cell = (cell_x, cell_y)
+                                nearest_region = (col, row)
+                                nearest_cell_position_in_region = (i, j)
+                            else:
+                                if abs(self.current_location[0] - cell_x) + abs(self.current_location[1] - cell_y) < \
+                                        abs(nearest_cell[0] - cell_x) + abs(nearest_cell[1] - cell_y):
+                                    nearest_cell = (cell_x, cell_y)
+                                    nearest_region = (col, row)
+                                    nearest_cell_position_in_region = (i, j)
+
+        return nearest_region, nearest_cell, nearest_cell_position_in_region
+
+    # get action list to reach to taget
+    def get_manhattan_path_actions(self, c1, c2, vertical_first=True):
+        path = [c1]
+        x1, y1 = c1
+        x2, y2 = c2
+
+        # Vertical then Horizontal
+        if vertical_first:
+            # Move vertically
+            step = 1 if x2 > x1 else -1
+            for x in range(x1 + step, x2 + step, step):
+                path.append((x, y1))
+            # Move horizontally
+            step = 1 if y2 > y1 else -1
+            for y in range(y1 + step, y2 + step, step):
+                path.append((x2, y))
+        else:
+            # Horizontal then Vertical
+            step = 1 if y2 > y1 else -1
+            for y in range(y1 + step, y2 + step, step):
+                path.append((x1, y))
+            step = 1 if x2 > x1 else -1
+            for x in range(x1 + step, x2 + step, step):
+                path.append((x, y2))
+
+        actions = []
+        for i in range(1, len(path)):
+            if path[i][0] - path[i - 1][0] == 1:
+                actions.append('R')
+            if path[i][0] - path[i - 1][0] == -1:
+                actions.append('L')
+            if path[i][1] - path[i - 1][1] == 1:
+                actions.append('D')
+            if path[i][1] - path[i - 1][1] == -1:
+                actions.append('U')
+
+        return actions
+
+    # SAR 3
+    def get_direct_id(self, direction):
+        if direction == 'U':
+            return np.int64(1)
+        if direction == 'D':
+            return np.int64(2)
+        if direction == 'L':
+            return np.int64(3)
+        if direction == 'R':
+            return np.int64(4)
+        return np.int64(0)
+
+    def select_action(self, coordinate_observation, agent_id):
+        # SAR
+        if len(self.path) > 0:
+            direction = self.get_direct_id(self.path[0])
+            self.path.pop(0)
+            return direction
+        else:
+            # Arrange target
+            if len([tuple(taget["location"]) for taget in self.targets_seen if taget["verified"] == False]) > 1:
+                if self.targets_seen_count != len(self.targets_seen):
+                    if search_for_best_rewards:
+                        tcga = TargetCollectionGA([tuple(taget["location"]) for taget in self.targets_seen if taget["verified"] == False], tuple(self.current_location))
+                        tcga_result = tcga.run()
+                        best_order = tcga_result['best_order']
+                        self.targets_seen = [self.targets_seen[i] for i in best_order]
+                        self.targets_seen_count = len(self.targets_seen)
+
+            print(f"Agent {agent_id}: Current targets seen: {self.targets_seen}")
+
+            self.targets_seen = list({tuple(target["location"]): target for target in self.targets_seen}.values())
+
+            if len(self.targets_seen) > 0:
+                closest_target = None
+                closest_target_distance = float('inf')
+                for target in self.targets_seen:
+                    target_coordinate = target["location"]
+                    horizontal_distance = target_coordinate[0] - coordinate_observation[0]
+                    vertical_distance = target_coordinate[1] - coordinate_observation[1]
+                    distance = abs(horizontal_distance) + abs(vertical_distance)
+                    print(f"Agent {agent_id}: Target {target_coordinate} at distance {distance}")
+
+                    if distance < closest_target_distance:
+                        closest_target_distance = distance
+                        closest_target = target_coordinate
+
+                if closest_target:
+                    # Check the validity of the target
+                    grid_width = gsize
+                    grid_height = gsize
+                    if not (0 <= closest_target[0] < grid_width and 0 <= closest_target[1] < grid_height):
+                        print(f"Invalid target location {closest_target}, skipping target.")
+                        closest_target = None
+
+                    if closest_target and closest_target_distance == 0:
+                        print(f"Agent {agent_id}: Reached target at {closest_target}, removing from targets_seen.")
+                        self.targets_seen = [t for t in self.targets_seen if tuple(t["location"]) != tuple(closest_target)]
+                        return 0
+
+                    if closest_target:
+                        print(f"Agent {agent_id}: Moving towards target at {closest_target}")
+                        horizontal_distance = closest_target[0] - coordinate_observation[0]
+                        vertical_distance = closest_target[1] - coordinate_observation[1]
+                        if abs(horizontal_distance) >= abs(vertical_distance):
+                            return 3 if horizontal_distance < 0 else 4
+                        else:
+                            return 1 if vertical_distance < 0 else 2
+                return 0
+            else:
+                # If action is going to be random, select another areas to cover.
+                if search_algorithm == 44:
+                    # move to nearest agent start location
+                    best_agent_id = -1
+                    shortest_distance = 2 * gsize + 1
+                    for agent in agents:
+                        if agent.agent_id not in self.visitend_agent_paths:
+                            if len(self.get_manhattan_path_actions(self.current_location, agents[agent.agent_id].init_current_location)) < shortest_distance:
+                                shortest_distance = len(self.get_manhattan_path_actions(self.current_location, agents[agent.agent_id].init_current_location))
+                                best_agent_id = agent.agent_id
+
+                    if best_agent_id > -1:
+                        self.visitend_agent_paths.append(best_agent_id)
+                        self.path = self.get_manhattan_path_actions(self.current_location, agents[best_agent_id].init_current_location) + self.all_path[best_agent_id].copy()
+                        direction = self.get_direct_id(self.path[0])
+                        self.path.pop(0)
+                        return direction
+
+                print(f"Agent {agent_id}: No valid targets, attempting random action.")
+                possible_actions = [1, 2, 3, 4]
+                return np.random.choice(possible_actions)
+
+    # risk-aware
+    def update_trust(self, other_agent_id, interaction_success, location):
+        # risk-aware
+        if agents[other_agent_id].noise_level == 0:
+            interaction_success = True
+
+        if not (apply_trust_threshold and self.trust_values[other_agent_id] < self.min_trust_level):
+            if other_agent_id not in self.true_interaction:
+                self.true_interaction[other_agent_id] = 0
+                self.false_interaction[other_agent_id] = 0
+
+            updated_trust = 0
+            previous_trust = self.trust_values[other_agent_id]
+
+            if trust_update == 0:
+                if interaction_success:
+                    self.true_interaction[other_agent_id] = self.true_interaction[other_agent_id] + 1
+                    interaction_result = 1
+                else:
+                    self.false_interaction[other_agent_id] = self.false_interaction[other_agent_id] + 1
+                    interaction_result = 0
+
+                    # risk-aware
+                    self.incorrect_decsion_impact += abs(self.current_location[0] - location[0]) + abs(
+                        self.current_location[1] - location[1])
+                    # risk-aware
+
+                if other_agent_id in self.trust_values:
+                    # privouse trust
+                    previous_trust = self.direct_trust[other_agent_id]
+
+                    #Paper: A Multi-Robot-Based Architecture and a Trust Model for Intelligent Fault Management and Control Systems
+                    # Equation (2)
+                    # Only direct trust
+                    self.direct_trust[other_agent_id] = alpha1 * previous_trust + (1 - alpha1) * (
+                            self.true_interaction[other_agent_id] / (
+                            self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id]))
+
+                    updated_trust = self.direct_trust[other_agent_id]
+
+                    if use_indirect:
+                        direct_trust = self.direct_trust[other_agent_id]
+
+                        # Calculate Indirect trust
+                        indirect_trust = 0.0
+                        total_weight = 0.0
+
+                        # Paper: A Multi-Robot-Based Architecture and a Trust Model for Intelligent Fault Management and Control Systems
+                        # Equation (3)
+                        for intermediary_agent, intermediary_trust in self.trust_values.items():
+                            if intermediary_agent != other_agent_id:
+                                indirect_trust += (
+                                        intermediary_trust * agents[intermediary_agent].trust_values[other_agent_id]
+                                )
+                                total_weight += intermediary_trust
+                        indirect_trust = indirect_trust / total_weight
+
+                        # direct and indirect trust
+                        # Paper: A Multi-Robot-Based Architecture and a Trust Model for Intelligent Fault Management and Control Systems
+                        # Equation (4)
+                        updated_trust = alpha2 * direct_trust + (1 - alpha2) * indirect_trust
+                        self.trust_values[other_agent_id] = updated_trust
+
+            if trust_update == 1 or trust_update == 2:
+                if interaction_success:
+                    self.true_interaction[other_agent_id] = self.true_interaction[other_agent_id] + 1
+                    interaction_result = 1
+                else:
+                    self.false_interaction[other_agent_id] = self.false_interaction[other_agent_id] + 1
+                    interaction_result = 0
+
+                    # risk-aware
+                    self.incorrect_decsion_impact += abs(self.current_location[0] - location[0]) + abs(
+                        self.current_location[1] - location[1])
+                    # risk-aware
+
+                if other_agent_id in self.trust_values:
+                    # Paper: Trust-based decision-making framework for multiagent system. Equation (5)
+                    self.direct_trust[other_agent_id] = (self.true_interaction[other_agent_id] + 1) / (
+                            self.true_interaction[other_agent_id] + self.false_interaction[other_agent_id] + 2)
+
+                    updated_trust = self.direct_trust[other_agent_id]
+
+                    if use_indirect:
+                        direct_trust = self.direct_trust[other_agent_id]
+
+                        # Calculate Indirect trust
+                        indirect_trust = 0.0
+                        total_weight = 0.0
+
+                        for intermediary_agent, intermediary_trust in self.direct_trust.items():
+                            if intermediary_agent != other_agent_id and intermediary_agent != self.agent_id:
+                                # Paper: Trust-based decision-making framework for multiagent system. Equation (5)
+                                indirect_trust += (
+                                        (agents[intermediary_agent].direct_trust[other_agent_id] - self.direct_trust[other_agent_id]) * intermediary_trust
+                                )
+                                if trust_update == 1:
+                                    # Paper: Trust-based decision-making framework for multiagent system. Equation (10)
+                                    total_weight += 1
+                                else:
+                                    # Paper: Trust-based decision-making framework for multiagent system. Equation (11)
+                                    total_weight += intermediary_trust
+
+                        indirect_trust = indirect_trust / total_weight
+
+                        # direct and indirect trust
+                        # Paper: Trust-based decision-making framework for multiagent system. Equation (12)
+                        self.trust_values[other_agent_id] = self.trust_values[other_agent_id] + alpha2 * (self.direct_trust[other_agent_id] + indirect_trust - self.trust_values[other_agent_id])
+                        updated_trust = self.trust_values[other_agent_id]
+
+            if trust_update == 3:
+                if interaction_success:
+                    self.true_interaction[other_agent_id] = self.true_interaction[other_agent_id] + 1
+                    interaction_result = 1
+                else:
+                    self.false_interaction[other_agent_id] = self.false_interaction[other_agent_id] + 1
+                    interaction_result = 0
+                if other_agent_id not in self.interaction:
+                    self.interaction[other_agent_id] = 0
+                self.interaction[other_agent_id] = self.interaction[other_agent_id] + 1
+
+
+                # risk-aware
+                self.incorrect_decsion_impact += abs(self.current_location[0] - location[0]) + abs(
+                    self.current_location[1] - location[1])
+                # risk-aware
+
+                if other_agent_id in self.trust_values:
+                    if other_agent_id not in self.direct_trust:
+                        self.direct_trust[other_agent_id] = 0
+
+                    # Paper: Trust Networks in Multi-Robot Communities (5)
+                    if interaction_success:
+                        self.direct_trust[other_agent_id] = (1 + self.interaction[other_agent_id] * self.direct_trust[other_agent_id]) / (1 + self.interaction[other_agent_id])
+                    else:
+                        self.direct_trust[other_agent_id] = (self.interaction[other_agent_id] *
+                                                             self.direct_trust[other_agent_id]) / (
+                                                                        1 + self.interaction[other_agent_id])
+
+                    updated_trust = self.direct_trust[other_agent_id]
+
+                    if use_indirect:
+                        direct_trust = self.direct_trust[other_agent_id]
+
+                        # Calculate Indirect trust
+                        indirect_trust = 0.0
+                        total_weight = 0.0
+
+                        for intermediary_agent, intermediary_trust in self.trust_values.items():
+                            if intermediary_agent != other_agent_id and intermediary_agent != self.agent_id:
+                                indirect_trust += agents[intermediary_agent].trust_values[other_agent_id]
+                                total_weight += 1
+
+                        indirect_trust = indirect_trust / total_weight
+
+                        # direct and indirect trust
+                        # Paper: Trust Networks in Multi-Robot Communities (1)
+                        self.trust_values[other_agent_id] = indirect_trust + alpha2 * (
+                                    self.direct_trust[other_agent_id] - indirect_trust)
+                        updated_trust = self.trust_values[other_agent_id]
+
+            if trust_update == 4:
+                if interaction_success:
+                    sp = ServiceProvider(other_agent_id, p_success=1)
+                    interaction_result = 1
+                else:
+                    sp = ServiceProvider(other_agent_id, p_success=0)
+                    interaction_result = 0
+
+                # Assign testimony regarding agents
+                for wit in self.consumer.witnesses:
+                    self.consumer.witnesses[wit].trust_values = agents[int(wit)].trust_values
+
+                result = self.consumer.decide_and_interact(sp)
+                self.incorrect_decsion_impact += abs(self.current_location[0] - location[0]) + abs(
+                    self.current_location[1] - location[1])
+                # risk-aware
+
+                self.direct_trust[other_agent_id] = result["tau_d"]
+
+                self.trust_values[other_agent_id] = result["reputation"]
+
+                updated_trust = result["reputation"]
+
+                # Update agent honesty
+                self.consumer.witnesses[str(other_agent_id)].honesty = result["reputation"]
+
+            # Set the trust value to be between 0 and 1
+            self.trust_values[other_agent_id] = max(0.0, min(1.0, updated_trust))
+
+            trust_type = "Direct + Indirect" if use_indirect else "Direct"
+
+            print(
+                f"Agent {self.agent_id} update trust for {other_agent_id}: :The previous trust value is: {previous_trust} : Updated trust: {updated_trust}  The interaction_result is {interaction_result}")
+
+    def update_memory(self, location, data, agent_id):
+        print(f"Agent {agent_id} is updating memory for location {location} with data {data}")
+        if location not in [record["location"] for record in self.memory]:
+            # add
+            self.memory.append({"location": location, "data": data})
+            print(f"Agent {agent_id} Updated Memory: {location} -> {data}")
+
+
+def add_coordinate_noise(coordinate, sensor_data, agent_id):
+    # if not coordinate_noise return
+    if not coordinate_noise:
+        return coordinate, sensor_data
+
+    # read current agent noise level to a local variable noise_level
+    noise_level = agents[agent_id].noise_level
+    if noise_level > random.random():
+
+        # read current agent x location  to a local variable location_x
+        location_x = coordinate[0]
+        location_y = coordinate[1]
+
+        # choose a random direction left (-1) or right (1)
+        available_x_directions = []
+        if location_x > 0:
+            available_x_directions.append(-1)
+        if location_x < env.WIDTH - 1:
+            available_x_directions.append(1)
+        direction_x = random.choice(available_x_directions)
+
+        # add distance for coordinate x to get new x instead of zero
+        if direction_x == -1:
+            new_x = random.randint(0, location_x - 1)
+        else:
+            new_x = random.randint(location_x + 1, env.WIDTH - 1)
+
+        # choose a random direction top (-1) or butttom (1)
+        available_y_directions = []
+        if location_y > 0:
+            available_y_directions.append(-1)
+        if location_y < env.HEIGHT - 1:
+            available_y_directions.append(1)
+        direction_y = random.choice(available_y_directions)
+
+        # add distance for coordinate y to get new y instead of zero
+        if direction_y == -1:
+            new_y = random.randint(0, location_y - 1)
+        else:
+            new_y = random.randint(location_y + 1, env.HEIGHT - 1)
+
+        ## Fix sensor data
+        # loop on all rows of sensor data rows
+        for i in range(len(sensor_data)):
+            # loop on all columns of sensor data rows
+            for j in range(len(sensor_data[i])):
+                # set get the location of cell data
+                location = [new_x + j - len(sensor_data[i]) // 2,
+                            new_y + i - len(sensor_data) // 2]
+
+                if sensor_data[i][j] is not None:
+                    # check if cell outside boarders
+                    if location[0] < 0 or location[0] >= env.WIDTH or location[1] < 0 or location[1] >= env.HEIGHT:
+                        sensor_data[i][j] = None
+
+        return ((new_x, new_y), sensor_data)
+
+    return coordinate, sensor_data
+
+
+def add_sensor_data_noise(sensor_data, agent_id):
+    # if not sensor_data_noise return
+    if not sensor_data_noise:
+        return sensor_data
+
+    # read current agent noise level to a local variable noise_level
+    noise_level = agents[agent_id].noise_level
+
+    if noise_level > random.random():
+        # loop on all rows of sensor data rows
+        for i in range(len(sensor_data)):
+            # loop on all columns of sensor data rows
+            for j in range(len(sensor_data[i])):
+                # check if cell contain a target
+                if sensor_data[i][j] is not None and 'target_' in sensor_data[i][j]:
+                    # get agent id from data
+                    target_agent_id = int(sensor_data[i][j].split("_")[1])
+                    if agent_id != target_agent_id:
+                        # Create list of all agents ids
+                        target_agent_list = list(range(len(agents)))
+                        # Create target agent id from targets list
+                        target_agent_list.remove(target_agent_id)
+                        # remove current agent from list if
+                        # Get random agent from the target list
+                        new_target_agent = random.choice(target_agent_list)
+                        new_target_id = random.randint(0, env.num_targets_per_agent - 1)
+                        sensor_data[i][j] = 'target_' + str(new_target_agent) + "_" + str(new_target_id)
+
+    return sensor_data
+
+
+def get_action(agent_id, observation, num_actions, agents, env):
+    """
+    This method provide a random action chosen recognized by the ma-gridworld environment:
+    1: up, 2: down, 3: left, 4: right, 0: stay
+    """
+
+    coordinate_observation = tuple(observation[0])  # Keep observation as (x, y) tuple
+
+    # optional observation data may be used, depend on the agent needs.
+    win_state_observation = observation[1]
+    sensor_data_observation = observation[2]
+    comm_observation = observation[3]
+
+    print(f"Observation for Agent {agent_id}: {observation}")
+
+    # تحقق من وجود بيانات الاتصال
+    if comm_observation:
+        for comm in comm_observation:
+            origin_location = comm[0]
+            data = comm[1]
+            reported_by = comm[2]  # الوكيل الذي أرسل البيانات
+
+            # تحليل البيانات المستلمة من وكيل معين
+            # agents[agent_id].analyse_communication([comm], agent_id)
+
+            for i in range(len(sensor_data_observation)):
+                for j in range(len(sensor_data_observation[i])):
+                    data = sensor_data_observation[i][j]
+                    location = [
+                        coordinate_observation[0] + j - len(sensor_data_observation[i]) // 2,
+                        coordinate_observation[1] + i - len(sensor_data_observation) // 2
+                    ]
+                    for target in agents[agent_id].targets_seen:
+                        if not target["verified"]:
+                            if location == target["location"]:
+                                if data != None and 'target_' + str(agent_id) in data:
+                                    target["verified"] = True
+                                    # SAR
+                                    agents[agent_id].target_collection[data] = agents[agent_id].time_steps
+                                    # SAR
+                                    if 'agent' in target['source']:
+                                        reported_by = int(target['source'].split("_")[1])
+                                        print(f"Reach reported target location in {location} report by {reported_by}")
+                                        # Update trust towards the reported agent
+                                        # risk-aware
+                                        agents[agent_id].update_trust(reported_by, interaction_success=True,
+                                                                      location=location)
+
+                                        agents[agent_id].collected_targets.append(
+                                            {"step": agents[agent_id].step, "target": target})
+                                        # risk-aware
+                                else:
+                                    if 'agent' in target['source']:
+                                        target["verified"] = True
+                                        reported_by = int(target['source'].split("_")[1])
+
+                                        self_target_seen = False
+                                        for self_target in agents[agent_id].targets_seen:
+                                            if self_target["location"] == location and self_target["source"] == "self":
+                                                self_target_seen = True
+                                        if self_target_seen:
+                                            # risk-aware
+                                            agents[agent_id].update_trust(reported_by, interaction_success=True,
+                                                                          location=location)
+
+                                            agents[agent_id].collected_targets.append({"step": agents[agent_id].step, "target": target})
+                                            # risk-aware
+                                        else:
+                                            # risk-aware
+                                            agents[agent_id].update_trust(reported_by, interaction_success=False,
+                                                                          location=location)
+                                            # risk-aware
+
+    else:
+        print(f"Agent {agent_id}: No communication data available this step.")
+
+    agents[agent_id].analyse_sensor_data(agent_id, coordinate_observation, sensor_data_observation)
+
+    # Send only to the agent that has a message inside comm_observation
+    # agents[agent_id].analyse_communication(agent_id, comm_observation) old code
+    # new code
+    found_related_message = False
+    for item1 in comm_observation:
+        if isinstance(item1, list):
+            for item2 in item1:
+                if isinstance(item2, list):
+                    for item3 in item2:
+                        if isinstance(item3, list):
+                            for item4 in item3:
+                                if item4 is not None:
+                                    if ("target_" + str(agent_id)) in item4:
+                                        found_related_message = True
+
+    if found_related_message:
+        agents[agent_id].analyse_communication(agent_id, comm_observation)
+    # Send only to the agent that has a message inside comm_observation
+
+
+    physical_action = agents[agent_id].select_action(coordinate_observation, agent_id)
+
+    if env.is_agent_silent:
+        comm_action = []  # communication action is set to be zero if agent silent
+    else:
+        coordinate_observation, sensor_data_observation = add_coordinate_noise(coordinate_observation,
+                                                                               sensor_data_observation, agent_id)
+        sensor_data_observation = add_sensor_data_noise(sensor_data_observation, agent_id)
+
+        comm_action = [coordinate_observation, sensor_data_observation,
+                       agent_id]  # example of random value as a communication action
+
+    return (physical_action, comm_action)
+
+
+results = []
+
+# risk-aware
+risk_aware_results = []
+
+
+# risk-aware
+
+def run(num_episodes, max_steps_per_episode, agents, num_actions, env):
+    global search_generate, search_complete
+
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    # تخزين القيم المبدئية لدرجة الثقة لكل وكيل
+    initial_trust_levels = {}
+
+    # تسجيل القيم المبدئية عند التهيئة
+    for agent_id, agent in enumerate(agents):
+        print(
+            f"Agent {agent_id}: Noise level {agent.noise_level:.2f}, Initialized agents with trust level {agent.trust_values}")
+        initial_trust_levels[agent_id] = agent.trust_values.copy()  # حفظ نسخة من القيم المبدئية
+        # SAR 3
+        agent.path = []
+
+        agent.build_path()
+        # SAR 3
+
+    trust_error = []
+
+    key_name = ''
+    if trust_update == 1:
+        key_name = "HTD1"
+    if trust_update == 2:
+        key_name = "HTD2"
+    if trust_update == 3:
+        key_name = "Distributed Trust"
+    if trust_update == 4:
+        key_name = "ACT"
+
+    time_step_results[key_name] = []
+
+    execluded_episode = []  # Episode list with step greater than max_episode_steps
+    for episode in range(num_episodes):
+        search_complete = False
+        search_generate = False
+        print(f"Starting episode {episode + 1}")
+
+        # SAR 3
+        # Generate regions marked as unvisited
+        for col in range(int(gsize / small_square_size)):
+            for row in range(int(gsize / small_square_size)):
+                regions[(col, row)] = 0
+        # SAR 3
+
+        # Reset environment
+        observations = env.reset()
+
+        # Tracking variables
+        done = [False] * env.num_agents
+        step_count = 0
+        agent_steps = {agent_id: 0 for agent_id in range(env.num_agents)}  # Track steps per agent
+        agent_goals_achieved = {agent_id: 0 for agent_id in range(env.num_agents)}  # Track goals achieved per agent
+
+        step = 0
+        while not all(done) and step_count < max_steps_per_episode:
+            actions = []
+            for agent_id in range(env.num_agents):
+                if not done[agent_id]:  # Only process agents still active
+                    observation = observations[agent_id]
+                    action = get_action(agent_id, observation, num_actions, agents, env)
+                    actions.append(action)
+                    agent_steps[agent_id] += 1  # Increment step count
+                else:
+                    actions.append((0, []))  # No action for agents marked as done
+
+            observations, rewards, done = env.step(actions)
+
+            # Update Trust History
+            for agent_id in range(env.num_agents):
+                agents[agent_id].step = step
+                for other_agent in agents[agent_id].trust_values:
+                    agents[agent_id].trust_values_history[other_agent].append(
+                        agents[agent_id].trust_values[other_agent])
+
+            diff_dict = {}
+            diff_dict["episode"] = episode
+            step += 1
+            diff_dict["step_id"] = step
+
+            # risk-aware
+            incorrect_decsion_impact = 0
+            # risk-aware
+
+            # Add Record to trust_error
+            for agent_id in range(env.num_agents):
+                value = 0
+                step_error_rate = 0
+                step_error_list = []
+                for other_agent in range(env.num_agents):
+                    if agent_id in agents[other_agent].trust_values:
+                        value += agents[other_agent].trust_values[agent_id] / (env.num_agents - 1)
+                        diff = abs(agents[other_agent].trust_values[agent_id] - (1 - agents[agent_id].noise_level)) / (
+                                env.num_agents - 1)
+                        step_error_rate += diff
+                        step_error_list.append(diff)
+                diff_dict[str(agent_id) + "_noise"] = agents[agent_id].noise_level
+                diff_dict[str(agent_id) + "_act_trust"] = 1.0 - agents[agent_id].noise_level
+                diff_dict[str(agent_id) + "_trust"] = value
+                diff_dict[str(agent_id) + "_e_rate"] = step_error_rate
+                diff_dict[str(agent_id) + "_var"] = statistics.variance(step_error_list)
+
+                # risk-aware
+                incorrect_decsion_impact = incorrect_decsion_impact + agents[agent_id].incorrect_decsion_impact
+                # risk-aware
+
+            trust_error.append(diff_dict)
+
+            # risk-aware
+            risk_aware_results.append({"episode": episode, "step_id": step,
+                                       "incorrect_decsion_impact": incorrect_decsion_impact / env.num_agents})
+            # risk-aware
+
+            # Check number of episode steps
+            if step > max_episode_steps:
+                execluded_episode.append(episode)
+
+            # Check if goals are achieved and update counters
+            for agent_id in range(env.num_agents):
+                if rewards[agent_id] > 0:  # Positive reward implies a goal achieved
+                    agent_goals_achieved[agent_id] += 1
+
+            step_count += 1
+            env.render()
+
+        # Log final trust values at the end of each episode
+        for agent_id, agent in enumerate(agents):
+            trust_values = agent.trust_values  # Dictionary of trust values
+            initial_trust_for_agent = initial_trust_levels.get(agent_id, {})
+
+            agent_reward = 0
+            for collected_target in agent.collected_targets:
+                agent_reward += agent_steps[agent_id] - collected_target["step"]
+
+            results.append({
+                "Agent ID": agent_id,
+                "Noise Level": agent.noise_level,
+                **{
+                    f"Initial Trust Against Agent {other_id}": 0.0 if agent_id == other_id else initial_trust_for_agent.get(
+                        other_id, default_initial_trust) for other_id in range(env.num_agents)},
+                **{f"Trust Against Agent {other_id}": 0.0 if agent_id == other_id else trust_values[other_id] for
+                   other_id in range(env.num_agents)},
+                "Steps": agent_steps[agent_id],
+                "Episode": episode + 1,
+                "Reward": agent_reward,
+            })
+        for agent_id, agent in enumerate(agents):
+            print(f"Agent {agent_id}: Final trust values: {agent.trust_values}")
+
+            # SAR
+            for target_id in agent.target_collection:
+                print("Target :" + target_id + " Collected in step " + str(
+                    agent.target_collection[target_id]) + " Reward = " + str(
+                    agent.target_collection_rewards_before_time_step - agent.target_collection[target_id]))
+            # SAR
+
+        # Reset agents for the next episode
+        for i in range(env.num_agents):
+            agents[i].reset()
+
+        # Delete previous goals and create new ones
+        for target_list in env.target_objs:
+            for target in target_list:
+                env.canvas.delete(target)
+
+        env.agent_targets = [[] for _ in range(env.num_agents)]
+        env.target_objs = [[] for _ in range(env.num_agents)]
+
+        for i in range(env.num_agents):
+            for _ in range(env.num_targets_per_agent):
+                target_position = env.get_random_target_position()
+                env.agent_targets[i].append(target_position)
+
+                target_x, target_y = target_position
+                triangle_points = [
+                    target_x, target_y - env.UNIT / 4,
+                              target_x - env.UNIT / 4, target_y + env.UNIT / 4,
+                              target_x + env.UNIT / 4, target_y + env.UNIT / 4
+                ]
+                target_obj = env.canvas.create_polygon(
+                    triangle_points,
+                    fill=env.agent_colors[i % len(env.agent_colors)],
+                    outline='black'
+                )
+                env.target_objs[i].append(target_obj)
+
+        # Reset agents for the next episode
+        # set start location
+        for index, agent in enumerate(agents):
+            agent.current_location = agent.init_current_location
+        for index, agent in enumerate(agents):
+            agent.build_path()
+
+        print(f"Reinitialized targets for episode {episode + 1}: {env.agent_targets}")
+
+        print(f"Episode {episode + 1} finished after {step_count} steps.\n")
+
+        time_step_results[key_name].append(step_count)
+
+    # Trust variation
+    trust_error_pd = pd.DataFrame(trust_error)
+
+
+    # fix steps
+    steps_per_episode = trust_error_pd.groupby('episode')['step_id'].max()
+    max_steps = steps_per_episode.max()
+
+    # Result list
+    result_rows = []
+
+    # Process each episode
+    for episode, group in trust_error_pd.groupby('episode'):
+        group = group.sort_values('step_id')
+        last_row = group.iloc[-1].copy()
+        result_rows.extend(group.to_dict(orient='records'))
+
+        # Add missing steps
+        current_steps = group['step_id'].max()
+        for step in range(current_steps + 1, max_steps + 1):
+            new_row = deepcopy(last_row)
+            new_row['step_id'] = step
+            result_rows.append(new_row)
+
+    # Final dataframe
+    trust_error_pd = pd.DataFrame(result_rows).sort_values(['episode', 'step_id']).reset_index(drop=True)
+
+
+    # Remove execluded_episode
+    #trust_error_pd = trust_error_pd[~trust_error_pd['episode'].isin(execluded_episode)]
+
+    trust_error_summary = trust_error_pd.groupby(["step_id"]).agg({
+        **{col: "mean" for col in trust_error_pd.columns if col != "step_id" and col != "episode"}
+    }).reset_index()
+
+    # risk-aware
+    risk_aware_results_pd = pd.DataFrame(risk_aware_results)
+
+    risk_aware_results_pd = risk_aware_results_pd[~risk_aware_results_pd['episode'].isin(execluded_episode)]
+
+    risk_aware_results_pd_summary = risk_aware_results_pd.groupby(["step_id"]).agg({
+        **{col: "mean" for col in risk_aware_results_pd.columns if col != "step_id" and col != "episode"}
+    }).reset_index()
+    # risk-aware
+
+    # Transfer the results into DataFrame
+    df = pd.DataFrame(results)
+
+    # إنشاء ملخص البيانات مع إضافة Initial Trust Level و Steps
+    summary = df.groupby(["Agent ID", "Noise Level"]).agg({
+        **{col: "mean" for col in df.columns if "Trust Against" in col or "Initial Trust Against" in col},
+        # متوسط الثقة لكل وكيل
+        "Steps": "mean",  # إضافة حساب متوسط الخطوات,
+        "Reward": "mean"
+    }).reset_index()
+
+    global search_algorithm
+    algo_name = ""
+    if search_algorithm == 0:  # random
+        algo_name = "Random Search"
+    if search_algorithm == 1:  # spanning tree
+        algo_name = "Spanning Search"
+    if search_algorithm == 2:  # genetic
+        algo_name = "Genetic Search"
+    if search_algorithm == 3:  # distributed coverage
+        algo_name = "Distributed Coverage Search"
+    if search_algorithm == 4:  # distributed coverage
+        algo_name = "Wavefront Full"
+    if search_algorithm == 44:  # distributed coverage
+        algo_name = "Wavefront Distributed"
+    if search_algorithm == 5:  # distributed coverage
+        algo_name = "Boustrophedon Full"
+
+    if trust_update == 1:
+        algo_name = algo_name + " (HTD1) "
+    if trust_update == 2:
+        algo_name = algo_name + " (HTD2) "
+    if trust_update == 3:
+        algo_name = algo_name + " (Distributed Trust) "
+    if trust_update == 4:
+        algo_name = algo_name + " (ACT) "
+
+    # Write to Excel
+    file_name = f"{algo_name} trust_results_size_{str(gsize)}_{'indirect' if use_indirect else 'direct'}_{'with_threshold' if apply_trust_threshold else 'without_threshold'}.xlsx"
+    with pd.ExcelWriter(file_name) as writer:
+        df.to_excel(writer, index=False, sheet_name="Detailed Results")  # الصفحة الأولى
+        summary.to_excel(writer, index=False, sheet_name="Summary")  # الصفحة الثانية
+        trust_error_pd.to_excel(writer, index=False, sheet_name="Trust Error")  # الصفحة الأولى
+        trust_error_summary.to_excel(writer, index=False, sheet_name="Trust Error Summary")  # الصفحة الأولى
+        # risk-aware
+        risk_aware_results_pd.to_excel(writer, index=False, sheet_name="Risk Aware results")
+        risk_aware_results_pd_summary.to_excel(writer, index=False, sheet_name="Risk Aware Summary")
+        # risk-aware
+
+    print(f"Results saved to '{file_name}'.")
+    # 📉 رسم عدد الخطوات مقابل مستوى النويز لكل Agent
+
+    if not df.empty:
+        plt.figure(figsize=(10, 6))
+        agents_ids = df["Agent ID"].unique()
+
+        for agent_id in agents_ids:
+            agent_data = df[df["Agent ID"] == agent_id]
+            grouped = agent_data.groupby("Noise Level").agg({"Steps": "mean"}).reset_index()
+
+            # حساب متوسط النويز للوكيل
+            avg_noise = agent_data["Noise Level"].mean()
+            noise_percent = int(avg_noise * 100)
+
+            # رسم الخط
+            plt.plot(
+                grouped["Noise Level"],
+                grouped["Steps"],
+                marker='o',
+                label=f"Agent {agent_id} - noise level = {noise_percent}%"  # ✅ التسمية حسب طلبك
+            )
+
+        # (Optional) Save default to file for next time
+        with open(file_path, "wb") as file:  # "wb" = write binary
+            pickle.dump(time_step_results, file)
+
+        import matplotlib.pyplot as plt
+
+        # Plot time step
+        plt.figure(figsize=(8, 5))
+
+        # Plot each key as a separate line
+        for key, values in time_step_results.items():
+            time_steps = range(len(values))  # X-axis = 0,1,2,...
+            plt.plot(time_steps, values, marker='o', label=key)
+
+        # Add labels, grid, legend
+        plt.xlabel("Trials#")
+        plt.ylabel("Time Steps")
+        plt.title("Time steps taken by agents to complete the simulation experiments")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+
+if __name__ == "__main__":
+    gsize = 15 #30 #25  # grid size (square)
+    gpixels = 25  # grid cell size in pixels
+
+    # search_algorithm = 0  # random
+    # search_algorithm = 1  # spanning tree
+
+    search_algorithm = 0
+    trust_update = 1
+
+    search_for_best_rewards = False
+
+    search_complete = False
+    search_generate = False
+
+    # SAR 3
+    small_square_size = 5
+
+    regions = {}
+    # Generate regions marked as unvisited
+    for col in range(int(gsize / small_square_size)):
+        for row in range(int(gsize / small_square_size)):
+            regions[(col, row)] = 0
+    include_sensor_in_coverage = True
+    # SAR 3
+
+    is_sensor_active = True  # True:  Activate the sensory observation data
+    sensory_size = 3  # 'is_sensor_active' must be True. The value must be odd, if event will be converted to one level odd number above
+
+    default_initial_trust = .5
+
+    num_agents = 5  # the number of agents will be run in paralel
+    num_obstacles = 0  # the number of obstaclesf
+    is_single_target = False  # True: all agents have a single target, False: each agent has their own target
+    num_targets_per_agent = 5 # 50 # 25  # 'is_single_target' must be true to have an effect
+
+    is_agent_silent = False  # True: communication among agents is allowed
+
+    num_episodes = 10  # 20 # the number of episode will be run
+    max_steps_per_episode = 2000  # each episode will be stopped when max_step is reached
+
+    eps_moving_targets = 100000  # set this value greater than 'num_episodes' to keep the targets in a stationary position
+    eps_moving_obstacles = 100000  # set this value greater than 'num_episodes' to keep the obstacles in a stationary position
+
+    render = True  # True: render the animation into the screen (so far, it is still can not be deactivated)
+
+    min_obstacle_distance_from_target = 1  # min grid distance of each obstacles relative to targets
+    max_obstacle_distance_from_target = 5  # max grid distance of each obstacles relative to targets
+    min_obstacle_distance_from_agents = 1  # min grid distance of each obstacles relative to agents
+
+    reward_normal = -1  # reward value of normal steps
+    reward_obstacle = -5  # reward value when hit an obstacle
+    reward_target = 50  # reward value when reach the target
+
+    apply_trust_threshold = True
+    use_indirect = True
+    alpha1 = 0.7
+    alpha2 = 0.7
+    coordinate_noise = False
+    sensor_data_noise = True
+    max_episode_steps = 10000  # Max steps per each to episode report in trust error report
+
+    is_totally_random = True  # True: target and obstacles initial as well as movement position is always random on each call, False: only random at the beginning.
+    animation_speed = 0.1  # smaller is faster
+    is_destroy_environment = True  # True: automatically close the animation after all episodes end.
+
+    # SAR 3 set noise level to 0
+    # 🎯 إعداد تجربة نصفهم noisy والنصف clean
+    noise_level_noisy = 0.5  # مستوى النويز للـ Agents السيئين
+    noise_level_clean = 0.0  # بدون نويز
+
+    for settings in [[
+        (0.0, default_initial_trust, 0.4),  # Agent 0: noisy
+        (0.0, default_initial_trust, 0.4),  # Agent 1: clean
+        (0.0, default_initial_trust, 0.4),  # Agent 1: clean
+        (0.0, default_initial_trust, 0.4),  # Agent 2: noisy
+        (0.0, default_initial_trust, 0.4),  # Agent 2: noisy
+
+    ]]:
+        for trial in range(1):
+            # Initialize environment
+            env = Env(
+                num_agents=num_agents, num_targets_per_agent=num_targets_per_agent, num_obstacles=num_obstacles,
+                eps_moving_obstacles=eps_moving_obstacles, eps_moving_targets=eps_moving_targets,
+                is_agent_silent=is_agent_silent, is_single_target=is_single_target, sensory_size=sensory_size,
+                gpixels=gpixels, gheight=gsize, gwidth=gsize, is_sensor_active=is_sensor_active,
+                min_obstacle_distance_from_target=min_obstacle_distance_from_target,
+                max_obstacle_distance_from_target=max_obstacle_distance_from_target,
+                min_obstacle_distance_from_agents=min_obstacle_distance_from_agents,
+                is_totally_random=is_totally_random, animation_speed=animation_speed,
+                reward_normal=reward_normal, reward_obstacle=reward_obstacle, reward_target=reward_target
+            )
+
+
+            num_actions = len(env.action_space)
+
+            agents = [SearchAgent(index, settings[index][0], settings[index][1], settings[index][2], num_actions) for
+                      index in range(num_agents)]
+
+            # create obstacle property
+            env.obstacle_location = []
+            for obstacle_position in env.obstacle_positions:
+                env.obstacle_location.append((int(obstacle_position[0]/gpixels), int(obstacle_position[1]/gpixels)))
+
+            # set start location
+            for index, agent in enumerate(agents):
+                agent.init_current_location = [int(env.agents[index]['coords'][0] / gpixels),int(env.agents[index]['coords'][1] / gpixels)]
+                agent.current_location = agent.init_current_location
+            for index, agent in enumerate(agents):
+                agent.build_path()
+
+            import pickle
+            import os
+
+            # File to store results
+            file_path = "time_step_results.pkl"
+
+            time_step_results = {}
+            # Load from file if it exists, otherwise use default
+            if os.path.exists(file_path):
+                with open(file_path, "rb") as f:  # "rb" = read binary
+                    time_step_results = pickle.load(f)
+
+            # Run episodes
+            run(num_episodes, max_steps_per_episode, agents, num_actions, env)
+
+            if is_destroy_environment:
+                env.destroy_environment()
